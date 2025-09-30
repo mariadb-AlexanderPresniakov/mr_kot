@@ -1,0 +1,43 @@
+[tool.poetry]
+name = "mr-kot"
+version = "0.1.0"
+description = "Pytest-inspired invariant checker"
+authors = ["Alexander Presnyakov <flagist0@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+
+[tool.poetry.dev-dependencies]
+pytest = "^8.0.0"
+ruff = "^0.5.0"
+
+[tool.poetry.scripts]
+mrkot = "mr_kot.cli:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "W",   # pycodestyle warnings
+  "I",   # isort
+  "N",   # pep8-naming
+  "B",   # flake8-bugbear
+  "UP",  # pyupgrade
+  "SIM", # flake8-simplify
+  "RUF", # Ruff-specific rules
+]
+# keep your existing 'select', just add these ignores
+ignore = [
+  "UP006",  # prefer builtins (e.g., dict) over typing (Dict)
+  "UP035",  # typing.Dict
+  "UP007",  # prefer X | Y over typing.Union
+]
