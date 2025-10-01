@@ -24,20 +24,28 @@ class CheckResult:
     id: str
     status: Status
     evidence: Any
+    tags: List[str]
 
 
 class Runner:
-    def __init__(self) -> None:
+    def __init__(self, allowed_tags: set[str] | None = None, include_tags: bool = False) -> None:
         self._fact_cache: Dict[str, Any] = {}
+        self._allowed_tags: set[str] | None = set(allowed_tags) if allowed_tags else None
+        self._include_tags: bool = include_tags
 
     def run(self) -> Dict[str, Any]:
         """Run all registered checks with resolved facts and return machine-readable dict."""
         results: list[CheckResult] = []
 
         for check_id, check_fn in CHECK_REGISTRY.items():
+            # Tags filter (CLI): if filter present, only include checks with any matching tag
+            check_tags: List[str] = list(getattr(check_fn, "_mrkot_tags", []) or [])
+            if self._allowed_tags is not None:
+                if not check_tags or self._allowed_tags.isdisjoint(check_tags):
+                    continue
             try:
                 # 1) Selector
-                sel_ok, sel_result = self._evaluate_selector(check_id, check_fn)
+                sel_ok, sel_result = self._evaluate_selector(check_id, check_fn, check_tags)
                 if not sel_ok:
                     if sel_result is not None:
                         results.append(sel_result)
@@ -49,16 +57,16 @@ class Runner:
                     continue
 
                 # 3) Execute instances
-                results.extend(self._execute_instances(check_fn, instances))
+                results.extend(self._execute_instances(check_fn, instances, check_tags))
             except Exception as exc:  # selector or planning error
                 results.append(
-                    CheckResult(id=check_id, status=Status.ERROR, evidence=f"exception: {exc.__class__.__name__}: {exc}")
+                    CheckResult(id=check_id, status=Status.ERROR, evidence=f"exception: {exc.__class__.__name__}: {exc}", tags=check_tags)
                 )
 
         return self._build_output(results)
 
     # ----- High-level steps -----
-    def _evaluate_selector(self, check_id: str, check_fn: Callable[..., Any]) -> Tuple[bool, CheckResult | None]:
+    def _evaluate_selector(self, check_id: str, check_fn: Callable[..., Any], tags: List[str]) -> Tuple[bool, CheckResult | None]:
         sel = getattr(check_fn, "_mrkot_selector", None)
         if sel is None:
             return True, None
@@ -70,14 +78,14 @@ class Runner:
         sel_kwargs = self._resolve_args(sel)
         sel_ok = bool(sel(**sel_kwargs))
         if not sel_ok:
-            return False, CheckResult(id=check_id, status=Status.SKIP, evidence="selector=false")
+            return False, CheckResult(id=check_id, status=Status.SKIP, evidence="selector=false", tags=tags)
         return True, None
 
     def _plan_instances(self, check_id: str, check_fn: Callable[..., Any]) -> List[Tuple[str, Dict[str, Any]]]:
         return self._expand_params(check_id, check_fn)
 
     def _execute_instances(
-        self, check_fn: Callable[..., Tuple[Status | str, Any]], instances: List[Tuple[str, Dict[str, Any]]]
+        self, check_fn: Callable[..., Tuple[Status | str, Any]], instances: List[Tuple[str, Dict[str, Any]]], tags: List[str]
     ) -> List[CheckResult]:
         out: list[CheckResult] = []
         for inst_id, param_bindings in instances:
@@ -85,7 +93,7 @@ class Runner:
                 status, evidence = self._run_check_instance(check_fn, param_bindings)
             except Exception as exc:
                 status, evidence = Status.ERROR, f"exception: {exc.__class__.__name__}: {exc}"
-            out.append(CheckResult(id=inst_id, status=status, evidence=evidence))
+            out.append(CheckResult(id=inst_id, status=status, evidence=evidence, tags=tags))
         return out
 
     def _resolve_fact(self, fact_id: str, stack: list[str] | None = None) -> Any:
@@ -131,9 +139,12 @@ class Runner:
         return status, evidence
 
     def _build_output(self, results: list[CheckResult]) -> Dict[str, Any]:
-        items = [
-            {"id": r.id, "status": r.status.value, "evidence": r.evidence} for r in results
-        ]
+        items: list[Dict[str, Any]] = []
+        for r in results:
+            item = {"id": r.id, "status": r.status.value, "evidence": r.evidence}
+            if self._include_tags:
+                item["tags"] = r.tags
+            items.append(item)
         counts: Counter[str] = Counter(r.status.value for r in results)
         # ensure all keys present
         for k in ["PASS", "FAIL", "WARN", "SKIP", "ERROR"]:

@@ -13,7 +13,12 @@ def fact(func: Callable[..., Any]) -> Callable[..., Any]:
     return register_fact(func)
 
 
-def check(func: Callable[..., Tuple[Status | str, Any]] | None = None, *, selector: Callable[..., bool] | None = None):
+def check(
+    func: Callable[..., Tuple[Status | str, Any]] | None = None,
+    *,
+    selector: Callable[..., bool] | None = None,
+    tags: list[str] | None = None,
+):
     """Decorator to register a check function.
     The check id is the function name. Must return (status, evidence).
 
@@ -23,6 +28,7 @@ def check(func: Callable[..., Tuple[Status | str, Any]] | None = None, *, select
     def _decorate(fn: Callable[..., Tuple[Status | str, Any]]):
         # Attach metadata for planner
         fn._mrkot_selector = selector  # type: ignore[attr-defined]
+        fn._mrkot_tags = list(tags or [])  # type: ignore[attr-defined]
         # Parametrization metadata list; each entry is (name, values|None, source|None)
         if not hasattr(fn, "_mrkot_params"):
             fn._mrkot_params = []  # type: ignore[attr-defined]
