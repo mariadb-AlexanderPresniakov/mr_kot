@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import inspect
+import logging
+import sys
 import types
 from collections import Counter
 from contextlib import suppress
@@ -27,43 +29,95 @@ class CheckResult:
     tags: List[str]
 
 
+_LOGGER_NAME = "mr_kot"
+
+
 class Runner:
-    def __init__(self, allowed_tags: set[str] | None = None, include_tags: bool = False) -> None:
+    def __init__(self, allowed_tags: set[str] | None = None, include_tags: bool = False, verbose: bool = False) -> None:
         self._fact_cache: Dict[str, Any] = {}
         self._allowed_tags: set[str] | None = set(allowed_tags) if allowed_tags else None
         self._include_tags: bool = include_tags
+        self._init_logger(verbose)
 
     def run(self) -> Dict[str, Any]:
         """Run all registered checks with resolved facts and return machine-readable dict."""
         results: list[CheckResult] = []
 
+        self._log_registry_summary()
+
+        # Iterate checks
         for check_id, check_fn in CHECK_REGISTRY.items():
-            # Tags filter (CLI): if filter present, only include checks with any matching tag
-            check_tags: List[str] = list(getattr(check_fn, "_mrkot_tags", []) or [])
-            if self._allowed_tags is not None:
-                if not check_tags or self._allowed_tags.isdisjoint(check_tags):
-                    continue
-            try:
-                # 1) Selector
-                sel_ok, sel_result = self._evaluate_selector(check_id, check_fn, check_tags)
-                if not sel_ok:
-                    if sel_result is not None:
-                        results.append(sel_result)
-                    continue
-
-                # 2) Plan instances
-                instances = self._plan_instances(check_id, check_fn)
-                if not instances:
-                    continue
-
-                # 3) Execute instances
-                results.extend(self._execute_instances(check_fn, instances, check_tags))
-            except Exception as exc:  # selector or planning error
-                results.append(
-                    CheckResult(id=check_id, status=Status.ERROR, evidence=f"exception: {exc.__class__.__name__}: {exc}", tags=check_tags)
-                )
+            include, tags = self._filter_by_tags(check_fn)
+            if not include:
+                continue
+            results.extend(self._run_check_plan(check_id, check_fn, tags))
 
         return self._build_output(results)
+
+    # ----- Private helpers -----
+    def _init_logger(self, verbose: bool) -> None:
+        """Initialize the runner logger.
+
+        Logs are emitted to stderr. INFO by default, DEBUG when verbose=True.
+        """
+        logger = logging.getLogger(_LOGGER_NAME)
+        if not logger.handlers:
+            handler = logging.StreamHandler(stream=sys.stderr)
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            logger.addHandler(handler)
+            logger.propagate = False
+        logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+        self._logger = logger
+
+    def _log_registry_summary(self) -> None:
+        """Log counts and names (DEBUG) for discovered registry items."""
+        facts_list = list(FACT_REGISTRY.keys())
+        fixtures_list = list(FIXTURE_REGISTRY.keys())
+        checks_list = list(CHECK_REGISTRY.keys())
+        self._logger.info(
+            "[registry] discovered %d facts, %d fixtures, %d checks",
+            len(facts_list), len(fixtures_list), len(checks_list),
+        )
+        if facts_list:
+            self._logger.debug("[registry] facts: %s", ", ".join(facts_list))
+        if fixtures_list:
+            self._logger.debug("[registry] fixtures: %s", ", ".join(fixtures_list))
+        if checks_list:
+            self._logger.debug("[registry] checks: %s", ", ".join(checks_list))
+
+    def _filter_by_tags(self, check_fn: Callable[..., Any]) -> Tuple[bool, List[str]]:
+        """Return (include, tags) for current tag filter configuration."""
+        check_tags: List[str] = list(getattr(check_fn, "_mrkot_tags", []) or [])
+        if self._allowed_tags is None:
+            return True, check_tags
+        if not check_tags or self._allowed_tags.isdisjoint(check_tags):
+            return False, check_tags
+        return True, check_tags
+
+    def _run_check_plan(self, check_id: str, check_fn: Callable[..., Any], check_tags: List[str]) -> List[CheckResult]:
+        """Evaluate selector, plan instances, and execute; protect with error surface as ERROR item."""
+        out: list[CheckResult] = []
+        try:
+            # Selector
+            sel_ok, sel_result = self._evaluate_selector(check_id, check_fn, check_tags)
+            if not sel_ok:
+                if sel_result is not None:
+                    out.append(sel_result)
+                return out
+
+            # Plan instances
+            instances = self._plan_instances(check_id, check_fn)
+            if not instances:
+                return out
+
+            # Execute instances
+            out.extend(self._execute_instances(check_fn, instances, check_tags))
+            return out
+        except Exception as exc:
+            out.append(
+                CheckResult(id=check_id, status=Status.ERROR, evidence=f"exception: {exc.__class__.__name__}: {exc}", tags=check_tags)
+            )
+            return out
 
     # ----- High-level steps -----
     def _evaluate_selector(self, check_id: str, check_fn: Callable[..., Any], tags: List[str]) -> Tuple[bool, CheckResult | None]:
@@ -77,12 +131,21 @@ class Runner:
                 raise ValueError(f"Selector for '{check_id}' must depend only on facts; got '{name}'")
         sel_kwargs = self._resolve_args(sel)
         sel_ok = bool(sel(**sel_kwargs))
-        if not sel_ok:
+        if sel_ok:
+            self._logger.info("[selector] check=%s selector satisfied", check_id)
+            self._logger.debug("[selector] inputs for %s: %r", check_id, sel_kwargs)
+        else:
+            self._logger.info("[selector] check=%s selector not satisfied", check_id)
+            self._logger.debug("[selector] inputs for %s: %r", check_id, sel_kwargs)
             return False, CheckResult(id=check_id, status=Status.SKIP, evidence="selector=false", tags=tags)
         return True, None
 
     def _plan_instances(self, check_id: str, check_fn: Callable[..., Any]) -> List[Tuple[str, Dict[str, Any]]]:
-        return self._expand_params(check_id, check_fn)
+        instances = self._expand_params(check_id, check_fn)
+        if instances:
+            ids = ", ".join(inst_id for inst_id, _ in instances)
+            self._logger.debug("[param] expanded %s -> %s", check_id, ids)
+        return instances
 
     def _execute_instances(
         self, check_fn: Callable[..., Tuple[Status | str, Any]], instances: List[Tuple[str, Dict[str, Any]]], tags: List[str]
@@ -93,6 +156,7 @@ class Runner:
                 status, evidence = self._run_check_instance(check_fn, param_bindings)
             except Exception as exc:
                 status, evidence = Status.ERROR, f"exception: {exc.__class__.__name__}: {exc}"
+            self._logger.info("[check] run id=%s status=%s evidence=%r", inst_id, status.value, evidence)
             out.append(CheckResult(id=inst_id, status=status, evidence=evidence, tags=tags))
         return out
 
@@ -110,6 +174,10 @@ class Runner:
         kwargs = self._resolve_args(fn, [*stack, fact_id])
         value = fn(**kwargs)
         self._fact_cache[fact_id] = value
+        short = repr(value)
+        if len(short) > 200:
+            short = short[:200] + "..."
+        self._logger.debug("[fact] resolved %s=%s", fact_id, short)
         return value
 
     def _resolve_args(self, fn: Callable[..., Any], stack: list[str] | None = None) -> Dict[str, Any]:
@@ -159,11 +227,22 @@ class Runner:
         else:
             overall = Status.PASS
 
-        return {
+        summary = {
             "overall": overall.value,
             "counts": dict(counts),
             "items": items,
         }
+        # INFO summary
+        self._logger.info(
+            "[summary] PASS=%d FAIL=%d WARN=%d SKIP=%d ERROR=%d overall=%s",
+            summary["counts"]["PASS"],
+            summary["counts"]["FAIL"],
+            summary["counts"]["WARN"],
+            summary["counts"]["SKIP"],
+            summary["counts"]["ERROR"],
+            summary["overall"],
+        )
+        return summary
 
     # ----- Planner helpers -----
     def _expand_params(self, base_id: str, check_fn: Callable[..., Any]) -> list[tuple[str, Dict[str, Any]]]:
@@ -241,6 +320,8 @@ class Runner:
             else:
                 value = result
             fixture_cache[name] = value
+            # DEBUG logs for fixtures
+            self._logger.debug("[fixture] built %s=%r", name, value)
             return value
 
         # Build kwargs
@@ -259,6 +340,7 @@ class Runner:
             for td in reversed(teardowns):
                 with suppress(Exception):
                     td()
+                self._logger.debug("[fixture] teardown executed")
 
 
 def run() -> Dict[str, Any]:

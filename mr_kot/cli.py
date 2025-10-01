@@ -7,7 +7,7 @@ import sys
 from importlib import import_module
 from pathlib import Path
 
-from .runner import Runner, run as run_checks
+from .runner import Runner
 from .registry import CHECK_REGISTRY
 
 
@@ -29,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--list", action="store_true", help="List discovered checks and exit")
     p_run.add_argument("--tags", type=str, default="", help="Comma-separated tags to include")
     p_run.add_argument("--human", action="store_true", help="Print human-readable output instead of JSON")
+    p_run.add_argument("--verbose", action="store_true", help="Enable DEBUG logging to stderr")
 
     ns = parser.parse_args(argv)
 
@@ -47,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
             tagset = {t.strip() for t in ns.tags.split(",") if t.strip()}
 
         # Run
-        runner = Runner(allowed_tags=tagset)
+        runner = Runner(allowed_tags=tagset, include_tags=True, verbose=ns.verbose)
         result = runner.run()
         if ns.human:
             for item in result.get("items", []):
