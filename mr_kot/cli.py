@@ -7,8 +7,8 @@ import sys
 from importlib import import_module
 from pathlib import Path
 
-from .runner import Runner
 from .registry import CHECK_REGISTRY
+from .runner import Runner
 
 
 def _import_by_arg(arg: str) -> None:
@@ -49,7 +49,11 @@ def main(argv: list[str] | None = None) -> int:
 
         # Run
         runner = Runner(allowed_tags=tagset, include_tags=True, verbose=ns.verbose)
-        result = runner.run()
+        try:
+            result = runner.run()
+        except Runner.PlanningError as exc:
+            sys.stderr.write(f"planning error: {exc}\n")
+            return 2
         if ns.human:
             for item in result.get("items", []):
                 sys.stdout.write(f"{item['status']:<5} {item['id']}: {item['evidence']}\n")

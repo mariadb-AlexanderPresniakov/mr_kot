@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Tuple
 
 from .registry import CHECK_REGISTRY, FACT_REGISTRY, FIXTURE_REGISTRY
+
+# Predicate-only selectors; helpers live in selectors.py but are simple callables
 from .status import Status
 
 _SEVERITY_ORDER: Dict[Status, int] = {
@@ -45,6 +47,9 @@ class Runner:
 
         self._log_registry_summary()
 
+        # Preflight: validate and produce selector/param-source facts; fail-fast on errors
+        self._preflight_selector_and_param_facts()
+
         # Iterate checks
         for check_id, check_fn in CHECK_REGISTRY.items():
             include, tags = self._filter_by_tags(check_fn)
@@ -61,11 +66,13 @@ class Runner:
         Logs are emitted to stderr. INFO by default, DEBUG when verbose=True.
         """
         logger = logging.getLogger(_LOGGER_NAME)
-        if not logger.handlers:
-            handler = logging.StreamHandler(stream=sys.stderr)
-            handler.setFormatter(logging.Formatter("%(message)s"))
-            logger.addHandler(handler)
-            logger.propagate = False
+        # Reinitialize handler to bind to current sys.stderr for test capture
+        for h in list(logger.handlers):
+            logger.removeHandler(h)
+        handler = logging.StreamHandler(stream=sys.stderr)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
+        logger.propagate = False
         logger.setLevel(logging.DEBUG if verbose else logging.INFO)
         self._logger = logger
 
@@ -85,6 +92,62 @@ class Runner:
         if checks_list:
             self._logger.debug("[registry] checks: %s", ", ".join(checks_list))
 
+    # ----- Fail-fast planning -----
+    class PlanningError(Exception):
+        pass
+
+    def _preflight_selector_and_param_facts(self) -> None:
+        """Fail-fast validation and production of facts used by selectors and param sources.
+
+        - Unknown fact names cause a PlanningError
+        - Production failures cause a PlanningError
+        - Fixtures are not allowed in selectors
+        """
+        self._logger.info("[selector] preflight: checking facts for selectors and parametrization sources…")
+
+        # Collect selector fact names (predicate params or helper-declared facts)
+        selector_fact_names: set[str] = set()
+        for check_fn in CHECK_REGISTRY.values():
+            sel = getattr(check_fn, "_mrkot_selector", None)
+            if sel is None:
+                continue
+            if not callable(sel):
+                raise Runner.PlanningError(f"selector must be a callable or None, got: {type(sel).__name__}")
+            # Helper-provided metadata wins; else use signature param names
+            helper_facts = list(getattr(sel, "_mrkot_predicate_facts", []) or [])
+            if helper_facts:
+                for n in helper_facts:
+                    if n in FIXTURE_REGISTRY:
+                        raise Runner.PlanningError(f"fixtures cannot be used in selectors (facts-only): {n}")
+                    if n not in FACT_REGISTRY:
+                        raise Runner.PlanningError(f"unknown fact in selector: {n}")
+                    selector_fact_names.add(n)
+            else:
+                sel_sig = inspect.signature(sel)
+                for name, param in sel_sig.parameters.items():
+                    if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                        continue
+                    if name in FIXTURE_REGISTRY:
+                        raise Runner.PlanningError(f"fixtures cannot be used in selectors (facts-only): {name}")
+                    if name not in FACT_REGISTRY:
+                        raise Runner.PlanningError(f"unknown fact in selector: {name}")
+                    selector_fact_names.add(name)
+
+        # Do not produce selector facts here; some require instance bindings.
+        # Validation above ensures names exist and fixtures are not used.
+
+        # Param sources facts fail-fast
+        for check_fn in CHECK_REGISTRY.values():
+            params = list(getattr(check_fn, "_mrkot_params", []) or [])
+            for _name, _values, source in params:
+                if source:
+                    if source not in FACT_REGISTRY:
+                        raise Runner.PlanningError(f"unknown fact in param source: {source}")
+                    try:
+                        _ = self._resolve_fact(source)
+                    except Exception as exc:
+                        raise Runner.PlanningError(f"param source fact failed: {source}: {exc}") from exc
+
     def _filter_by_tags(self, check_fn: Callable[..., Any]) -> Tuple[bool, List[str]]:
         """Return (include, tags) for current tag filter configuration."""
         check_tags: List[str] = list(getattr(check_fn, "_mrkot_tags", []) or [])
@@ -98,22 +161,50 @@ class Runner:
         """Evaluate selector, plan instances, and execute; protect with error surface as ERROR item."""
         out: list[CheckResult] = []
         try:
-            # Selector
-            sel_ok, sel_result = self._evaluate_selector(check_id, check_fn, check_tags)
-            if not sel_ok:
-                if sel_result is not None:
-                    out.append(sel_result)
-                return out
-
-            # Plan instances
+            # Plan instances first
             instances = self._plan_instances(check_id, check_fn)
             if not instances:
                 return out
 
-            # Execute instances
-            out.extend(self._execute_instances(check_fn, instances, check_tags))
+            # Filter per-instance by selector
+            sel = getattr(check_fn, "_mrkot_selector", None)
+            # Each runnable instance may carry per-fact overrides for fact arguments
+            runnable: list[Tuple[str, Dict[str, Any], Dict[str, Dict[str, Any]]]] = []
+            if sel is None:
+                runnable = [(iid, p, {}) for iid, p in instances]
+            else:
+                for inst_id, params in instances:
+                    try:
+                        ok, evidence, overrides = self._selector_allows_instance(check_id, sel, params)
+                        if ok:
+                            self._logger.info("[selector] check=%s satisfied for %s", check_id, inst_id)
+                            runnable.append((inst_id, params, overrides))
+                        else:
+                            # Emit SKIP for this instance
+                            self._logger.info("[selector] check=%s not satisfied for %s: %s", check_id, inst_id, evidence)
+                            out.append(CheckResult(id=inst_id, status=Status.SKIP, evidence=evidence, tags=check_tags))
+                    except Exception as exc:
+                        if isinstance(exc, Runner.PlanningError):
+                            raise
+                        # Non-planning errors in predicate evaluation -> mark instance ERROR
+                        out.append(
+                            CheckResult(
+                                id=inst_id,
+                                status=Status.ERROR,
+                                evidence=f"exception: {exc.__class__.__name__}: {exc}",
+                                tags=check_tags,
+                            )
+                        )
+
+            if not runnable:
+                return out
+
+            # Execute filtered instances
+            out.extend(self._execute_instances(check_fn, runnable, check_tags))
             return out
         except Exception as exc:
+            if isinstance(exc, Runner.PlanningError):
+                raise
             out.append(
                 CheckResult(id=check_id, status=Status.ERROR, evidence=f"exception: {exc.__class__.__name__}: {exc}", tags=check_tags)
             )
@@ -140,6 +231,93 @@ class Runner:
             return False, CheckResult(id=check_id, status=Status.SKIP, evidence="selector=false", tags=tags)
         return True, None
 
+    def _selector_allows_instance(self, check_id: str, selector: Any, params: Dict[str, Any]) -> Tuple[bool, str | None, Dict[str, Dict[str, Any]]]:
+        """Predicate-only evaluation for a single planned instance.
+
+        - Resolve only the facts referenced by the predicate (helper metadata or signature).
+        - Bind fact parameters from current instance params by name intersection.
+        - On unknown/failing fact during predicate evaluation, raise PlanningError.
+        - Return (False, "selector=false", {}) when predicate is falsy (so instance is SKIP).
+        """
+        sel = selector  # type: ignore[assignment]
+        if not callable(sel):
+            raise Runner.PlanningError(f"selector must be a callable or None, got: {type(sel).__name__}")
+
+        helper_names = list(getattr(sel, "_mrkot_predicate_facts", []) or [])
+        if helper_names:
+            values: list[Any] = []
+            for fact_name in helper_names:
+                if fact_name not in FACT_REGISTRY:
+                    raise Runner.PlanningError(f"unknown fact in selector: {fact_name}")
+                try:
+                    fact_fn = FACT_REGISTRY[fact_name]
+                    fsig = inspect.signature(fact_fn)
+                    overrides: Dict[str, Any] = {p: params[p] for p in fsig.parameters if p in params}
+                    val = self._resolve_fact_with_overrides(fact_name, overrides) if overrides else self._resolve_fact(fact_name)
+                    values.append(val)
+                except Exception as exc:
+                    raise Runner.PlanningError(f"fact {fact_name} failed during selector evaluation: {exc}") from exc
+            decision = bool(sel(*values))
+            # DEBUG: log inputs and decision
+            shorts = []
+            for n, v in zip(helper_names, values):
+                s = repr(v)
+                if len(s) > 200:
+                    s = s[:200] + "..."
+                shorts.append(f"{n}={s}")
+            self._logger.debug("[selector] inputs for %s: %s -> %s", check_id, ", ".join(shorts), decision)
+            return (decision, "selector=false", {})
+
+        # Fallback: use predicate signature names (skip *args/**kwargs)
+        sel_sig = inspect.signature(sel)
+        kwargs: Dict[str, Any] = {}
+        for name, param in sel_sig.parameters.items():
+            if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                continue
+            if name not in FACT_REGISTRY:
+                raise Runner.PlanningError(f"unknown fact in selector: {name}")
+            try:
+                fact_fn = FACT_REGISTRY[name]
+                fsig = inspect.signature(fact_fn)
+                overrides: Dict[str, Any] = {p: params[p] for p in fsig.parameters if p in params}
+                kwargs[name] = self._resolve_fact_with_overrides(name, overrides) if overrides else self._resolve_fact(name)
+            except Exception as exc:
+                raise Runner.PlanningError(f"fact {name} failed during selector evaluation: {exc}") from exc
+        decision = bool(sel(**kwargs))
+        # DEBUG: log inputs and decision
+        shorts = []
+        for n, v in kwargs.items():
+            s = repr(v)
+            if len(s) > 200:
+                s = s[:200] + "..."
+            shorts.append(f"{n}={s}")
+        self._logger.debug("[selector] inputs for %s: %s -> %s", check_id, ", ".join(shorts), decision)
+        return (decision, "selector=false", {})
+
+    # legacy selector helpers removed; predicate-only is supported
+
+    def _resolve_fact_with_overrides(self, fact_id: str, overrides: Dict[str, Any], stack: list[str] | None = None) -> Any:
+        """Resolve a fact allowing some parameters to be overridden.
+
+        This does not memoize the result and is used only for selector binding checks.
+        """
+        if stack is None:
+            stack = []
+        if fact_id in stack:
+            cycle = " -> ".join([*stack, fact_id])
+            raise ValueError(f"Cycle detected in facts: {cycle}")
+        if fact_id not in FACT_REGISTRY:
+            raise KeyError(f"Fact '{fact_id}' is not registered")
+        fn = FACT_REGISTRY[fact_id]
+        sig = inspect.signature(fn)
+        kwargs: Dict[str, Any] = {}
+        for name in sig.parameters:
+            if name in overrides:
+                kwargs[name] = overrides[name]
+            else:
+                kwargs[name] = self._resolve_fact(name, [*stack, fact_id])
+        return fn(**kwargs)
+
     def _plan_instances(self, check_id: str, check_fn: Callable[..., Any]) -> List[Tuple[str, Dict[str, Any]]]:
         instances = self._expand_params(check_id, check_fn)
         if instances:
@@ -148,12 +326,15 @@ class Runner:
         return instances
 
     def _execute_instances(
-        self, check_fn: Callable[..., Tuple[Status | str, Any]], instances: List[Tuple[str, Dict[str, Any]]], tags: List[str]
+        self,
+        check_fn: Callable[..., Tuple[Status | str, Any]],
+        instances: List[Tuple[str, Dict[str, Any], Dict[str, Dict[str, Any]]]],
+        tags: List[str],
     ) -> List[CheckResult]:
         out: list[CheckResult] = []
-        for inst_id, param_bindings in instances:
+        for inst_id, param_bindings, fact_overrides in instances:
             try:
-                status, evidence = self._run_check_instance(check_fn, param_bindings)
+                status, evidence = self._run_check_instance(check_fn, param_bindings, fact_overrides)
             except Exception as exc:
                 status, evidence = Status.ERROR, f"exception: {exc.__class__.__name__}: {exc}"
             self._logger.info("[check] run id=%s status=%s evidence=%r", inst_id, status.value, evidence)
@@ -283,12 +464,36 @@ class Runner:
             instances.append((inst_id, binding))
         return instances
 
-    def _run_check_instance(self, fn: Callable[..., Tuple[Status | str, Any]], params: Dict[str, Any]) -> Tuple[Status, Any]:
-        """Resolve facts and fixtures, merge with params, run fn, and teardown fixtures."""
+    def _run_check_instance(
+        self,
+        fn: Callable[..., Tuple[Status | str, Any]],
+        params: Dict[str, Any],
+        fact_overrides: Dict[str, Dict[str, Any]] | None = None,
+    ) -> Tuple[Status, Any]:
+        """Resolve facts and fixtures, merge with params, run fn, and teardown fixtures.
+
+        fact_overrides:
+        - A per-instance mapping of fact_id -> {arg_name: value} used to override
+          the arguments passed when resolving facts that are injected as check
+          function parameters.
+        - This is populated by selector processing for `requires(...)` selectors,
+          where a fact must exist with specific argument bindings. Bind values can
+          come from the current check instance's parametrized arguments (e.g.,
+          bind={"mount": "path"}) or be constants (e.g., bind={"mount": "/data"}).
+        - Overrides are applied only for fact resolution during this check call.
+          They are not memoized in the global fact cache, so they won't leak to
+          other checks or instances.
+        - Rationale: preflight validates selector facts and param sources, but for
+          `requires(...)` we must respect per-instance bindings that are only
+          known after parametrization. We therefore defer actual bound resolution
+          to execution time while still failing fast on unknown fact names.
+        """
         sig = inspect.signature(fn)
         kwargs: Dict[str, Any] = {}
         fixture_cache: Dict[str, Any] = {}
         teardowns: list[Callable[[], None]] = []
+        if fact_overrides is None:
+            fact_overrides = {}
 
         def build_fixture(name: str, fstack: list[str] | None = None) -> Any:
             if fstack is None:
@@ -331,7 +536,22 @@ class Runner:
             elif name in FIXTURE_REGISTRY:
                 kwargs[name] = build_fixture(name)
             else:
-                kwargs[name] = self._resolve_fact(name)
+                # name is a fact id for check arg resolution
+                if name in FACT_REGISTRY:
+                    if name in fact_overrides:
+                        kwargs[name] = self._resolve_fact_with_overrides(name, fact_overrides[name])
+                    else:
+                        try:
+                            kwargs[name] = self._resolve_fact(name)
+                        except KeyError:
+                            # If default resolution fails and we have overrides, try them
+                            if name in fact_overrides:
+                                kwargs[name] = self._resolve_fact_with_overrides(name, fact_overrides[name])
+                            else:
+                                raise
+                else:
+                    # Not a fact, but also not a fixture and not in params — treat as error via normal resolution
+                    kwargs[name] = self._resolve_fact(name)
 
         try:
             return self._run_check(fn, kwargs)

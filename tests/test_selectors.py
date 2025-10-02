@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from mr_kot import Status, check, fact, run
+from mr_kot.runner import Runner
 
 
 class TestSelectorsBasic:
@@ -65,11 +68,8 @@ class TestSelectorsFactsOnly:
         def c():
             return (Status.PASS, "")
 
-        res = run()
-        items = [i for i in res["items"] if i["id"] == "c"]
-        assert len(items) == 1
-        assert items[0]["status"] == "ERROR"
-        assert "facts" in str(items[0]["evidence"]).lower()
+        with pytest.raises(Runner.PlanningError):
+            Runner().run()
 
     def test_selector_resolves_only_needed_facts(self) -> None:
         calls = []

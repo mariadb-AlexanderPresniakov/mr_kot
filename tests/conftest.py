@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+
 import pytest
 
 from mr_kot.registry import CHECK_REGISTRY, FACT_REGISTRY, FIXTURE_REGISTRY
