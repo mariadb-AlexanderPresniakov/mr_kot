@@ -39,6 +39,33 @@ def check(
     return _decorate
 
 
+def depends(*names: str):
+    """Declare dependencies (facts or fixtures) that must be prepared before running a check.
+
+    Usage:
+        @depends("mount_ready", "config_parsed")
+        @check
+        def my_check(...):
+            ...
+
+    - `names` must be strings; may be used multiple times and will be merged/deduplicated.
+    - Order does not matter.
+    """
+
+    # Validate input types
+    for n in names:
+        if not isinstance(n, str):
+            raise TypeError("depends names must be strings")
+
+    def _decorate(fn: Callable[..., Tuple[Status | str, Any]]):
+        existing: list[str] = list(getattr(fn, "_mrkot_depends", []) or [])
+        merged = list(dict.fromkeys([*existing, *names]))  # dedupe while preserving first appearance
+        fn._mrkot_depends = merged  # type: ignore[attr-defined]
+        return fn
+
+    return _decorate
+
+
 def fixture(func: Callable[..., Any]) -> Callable[..., Any]:
     """Register a fixture provider function by name.
     Supports normal return or generator (yield for teardown) style.

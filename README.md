@@ -30,17 +30,14 @@ def os_release():
 def os_is_ubuntu(os_release: dict) -> bool:
     return os_release["id"] == "ubuntu"
 ```
-
 ### Checks
 Checks verify invariants. They are registered with `@check`.
-It must return a tuple `(status, evidence)` where `status` is a `Status` enum: `PASS`, `FAIL`, `WARN`, `SKIP`, or `ERROR`.
-
+Checks must return a tuple `(status, evidence)` where `status` is a `Status` enum: `PASS`, `FAIL`, `WARN`, `SKIP`, or `ERROR`.
 
 You can use fact values inside a check to make a decision and craft evidence:
 
 ```python
 from mr_kot import check, Status, fact
-
 @fact
 def cpu_count() -> int:
     import os
@@ -52,6 +49,25 @@ def has_enough_cpus(cpu_count: int):
     if cpu_count >= required:
         return (Status.PASS, f"cpus={cpu_count} (>= {required})")
     return (Status.FAIL, f"cpus={cpu_count} (< {required})")
+```
+
+If you want a fact or fixture for its side effect (e.g. you don't need its value inside the function), use `@depends` instead of adding it as a function parameter.
+
+```python
+from mr_kot import check, depends, fixture, Status
+
+@fixture
+def side_effectful_fixture():
+    mount("/data")
+    yield True
+    umount("/data")
+
+@check
+@depends("side_effectful_fixture")
+def fs_write_smoke():
+    with open("/data/test", "w") as f:
+        f.write("ok")
+        return (Status.PASS, "ok")
 ```
 
 ### Selectors
@@ -183,15 +199,12 @@ Output structure:
     {"id": "mount_present[/logs]", "status": "FAIL", "evidence": "/logs missing"}
   ]
 }
-```
 
 The `overall` field is computed by severity ordering: `ERROR > FAIL > WARN > PASS`.
 
----
-
 ## License
 
-This project is licensed under the GNU Lesser General Public License v2.1.
+This project is licensed under the MIT License.
 
-- SPDX-License-Identifier: LGPL-2.1-only
+- SPDX-License-Identifier: MIT
 - See the `LICENSE` file at the repository root for full text.

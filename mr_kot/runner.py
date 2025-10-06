@@ -148,6 +148,15 @@ class Runner:
                     except Exception as exc:
                         raise Runner.PlanningError(f"param source fact failed: {source}: {exc}") from exc
 
+        # Validate @depends names: each must be a known fact or fixture
+        for check_id, check_fn in CHECK_REGISTRY.items():
+            depends: List[str] = list(getattr(check_fn, "_mrkot_depends", []) or [])
+            for name in depends:
+                if (name not in FACT_REGISTRY) and (name not in FIXTURE_REGISTRY):
+                    raise Runner.PlanningError(
+                        f"unknown dependency in @depends for '{check_id}': {name} (must be a fact or fixture)"
+                    )
+
     def _filter_by_tags(self, check_fn: Callable[..., Any]) -> Tuple[bool, List[str]]:
         """Return (include, tags) for current tag filter configuration."""
         check_tags: List[str] = list(getattr(check_fn, "_mrkot_tags", []) or [])
@@ -530,30 +539,58 @@ class Runner:
             return value
 
         # Build kwargs
-        for name in sig.parameters:
-            if name in params:
-                kwargs[name] = params[name]
-            elif name in FIXTURE_REGISTRY:
-                kwargs[name] = build_fixture(name)
-            else:
-                # name is a fact id for check arg resolution
-                if name in FACT_REGISTRY:
-                    if name in fact_overrides:
-                        kwargs[name] = self._resolve_fact_with_overrides(name, fact_overrides[name])
-                    else:
-                        try:
-                            kwargs[name] = self._resolve_fact(name)
-                        except KeyError:
-                            # If default resolution fails and we have overrides, try them
-                            if name in fact_overrides:
-                                kwargs[name] = self._resolve_fact_with_overrides(name, fact_overrides[name])
-                            else:
-                                raise
-                else:
-                    # Not a fact, but also not a fixture and not in params — treat as error via normal resolution
-                    kwargs[name] = self._resolve_fact(name)
-
+        # Prepare implicit dependencies declared via @depends before resolving normal args
+        depends: List[str] = list(getattr(fn, "_mrkot_depends", []) or [])
+        if depends:
+            self._logger.info("[depends] check=%s names=[%s]", fn.__name__, ",".join(depends))
         try:
+            for dep in depends:
+                if dep in FIXTURE_REGISTRY:
+                    val = build_fixture(dep)
+                    self._logger.debug("[depends] fixture %s built=%r", dep, val)
+                else:
+                    # Resolve fact and discard value
+                    val = self._resolve_fact(dep)
+                    short = repr(val)
+                    if len(short) > 200:
+                        short = short[:200] + "..."
+                    self._logger.debug("[depends] fact %s resolved=%s", dep, short)
+        except Exception as exc:
+            # Ensure teardown of any already-built fixtures for depends
+            evidence = f"depends failed: name={dep} reason={exc}"
+            self._logger.debug("[depends] error name=%s reason=%s", dep, exc)
+            # Teardown in LIFO
+            for td in reversed(teardowns):
+                with suppress(Exception):
+                    td()
+                self._logger.debug("[fixture] teardown executed")
+            return (Status.ERROR, evidence)
+
+        # Now resolve normal function arguments
+        try:
+            for name in sig.parameters:
+                if name in params:
+                    kwargs[name] = params[name]
+                elif name in FIXTURE_REGISTRY:
+                    kwargs[name] = build_fixture(name)
+                else:
+                    # name is a fact id for check arg resolution
+                    if name in FACT_REGISTRY:
+                        if name in fact_overrides:
+                            kwargs[name] = self._resolve_fact_with_overrides(name, fact_overrides[name])
+                        else:
+                            try:
+                                kwargs[name] = self._resolve_fact(name)
+                            except KeyError:
+                                # If default resolution fails and we have overrides, try them
+                                if name in fact_overrides:
+                                    kwargs[name] = self._resolve_fact_with_overrides(name, fact_overrides[name])
+                                else:
+                                    raise
+                    else:
+                        # Not a fact, but also not a fixture and not in params — treat as error via normal resolution
+                        kwargs[name] = self._resolve_fact(name)
+
             return self._run_check(fn, kwargs)
         finally:
             # Teardown in LIFO
