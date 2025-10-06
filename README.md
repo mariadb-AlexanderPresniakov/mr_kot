@@ -188,3 +188,10 @@ Output structure:
 The `overall` field is computed by severity ordering: `ERROR > FAIL > WARN > PASS`.
 
 ---
+
+## License
+
+This project is licensed under the GNU Lesser General Public License v2.1.
+
+- SPDX-License-Identifier: LGPL-2.1-only
+- See the `LICENSE` file at the repository root for full text.
