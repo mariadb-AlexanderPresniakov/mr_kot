@@ -180,6 +180,44 @@ def mount_present(mount):
 
 When fail-fast triggers, remaining instances are emitted as `SKIP`.
 
+### Validators and `check_all()`
+
+Validators are small reusable building blocks of logic used inside checks. They represent ready‑made validation routines for specific domains (for example, files, directories, services, or network resources). Each validator can be configured with parameters (like expected mode, owner, or recursion) and then applied to a specific target. Validators return the same result format as a check — a status and evidence — so they can be freely combined.
+
+You can run several validators together over one target with `check_all()`, which executes them in order and aggregates their results, stopping early if one fails (or running all if configured). This lets you compose complex checks from small, prepared, domain‑specific pieces of logic without writing everything manually.
+
+Details:
+- A validator is `validator(target) -> (Status|str, str)` (status, evidence).
+- Build validators as plain functions or callable classes that capture options in `__init__` and implement `__call__(target)`.
+- `check_all(target, *validators, fail_fast=True)` runs validators in order.
+  - `fail_fast=True`: stop at the first `FAIL` or `ERROR` and return that evidence.
+  - `fail_fast=False`: run all, aggregate by severity (`ERROR > FAIL > WARN > PASS`), join messages with `"; "`; if all pass, evidence is `target=<repr> ok`.
+- Robustness: unexpected exceptions in validators are converted to `ERROR` with evidence `validator=<name> error=<ExcType>: <message>`.
+
+Example:
+
+```python
+from mr_kot import check, Status, check_all
+
+class HasPrefix:
+    def __init__(self, prefix: str) -> None:
+        self.prefix = prefix
+
+    def __call__(self, target: str):
+        if target.startswith(self.prefix):
+            return (Status.PASS, f"{target} has {self.prefix}")
+        return (Status.FAIL, f"{target} missing {self.prefix}")
+
+def non_empty(t: str):
+    return (Status.PASS, "non-empty") if t else (Status.FAIL, "empty")
+
+@check
+def demo():
+    status, evidence = check_all("abc123", non_empty, HasPrefix("abc"), fail_fast=True)
+    return (status, evidence)
+```
+
+
 ### Fixtures
 Fixtures are reusable resources. They are registered with `@fixture`.
 They can return a value directly, or yield a value and perform teardown afterward.
