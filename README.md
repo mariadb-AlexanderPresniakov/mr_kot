@@ -71,11 +71,18 @@ def fs_write_smoke():
 ```
 
 ### Selectors
-Selectors are optional value-based predicates evaluated before running a check instance. Dependencies come from function arguments; selectors gate execution based on fact values.
+Selectors decide whether a check instance should run, based on fact values.
+They are passed as a parameter of @check(selector=...).
+If selector is not passed, the check runs unconditionally after parametrization.
 
-- If `selector=None` (default), the check runs unconditionally after parametrization.
-- A selector must be a callable that takes fact values as parameters and returns truthy/falsy.
-- Only facts are allowed in selector parameters (fixtures are not allowed).
+There are two forms of the selectors:
+
+- **String shorthand (recommended for common cases):** a comma-separated list of fact names. All listed facts must exist and evaluate truthy for the check to run.
+  This is equivalent to `ALL(<fact_name>, <fact_name>, ...)`.
+- **Predicate callable (advanced):** a function taking facts as arguments and returning a boolean.
+  There are helper predicates available: `ALL`, `ANY`, `NOT`.
+
+- Only facts are allowed in selectors; fixtures are not allowed.
 - Facts used solely as check arguments (not in the selector) are produced during execution; if they fail, that instance becomes `ERROR` and the run continues.
 
 Helper predicates (for common boolean checks):
@@ -132,6 +139,7 @@ Notes:
 - If a selector evaluates to False for an instance, the runner emits a `SKIP` item with evidence `selector=false`.
 - Unknown fact name in a selector (or helper) → planning error, run aborts.
 - Fact production error during selector evaluation → planning error, run aborts.
+- Fixtures are not allowed in selectors.
 - Facts used only as check arguments are produced at execution; failures mark that instance `ERROR` and the run continues.
 
 ### Fixtures

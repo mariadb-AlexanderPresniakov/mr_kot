@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable, Tuple
 
 from .registry import register_check, register_fact, register_fixture
+from .selectors import ALL
 from .status import Status
 
 
@@ -16,18 +17,42 @@ def fact(func: Callable[..., Any]) -> Callable[..., Any]:
 def check(
     func: Callable[..., Tuple[Status | str, Any]] | None = None,
     *,
-    selector: Callable[..., bool] | None = None,
+    selector: Callable[..., bool] | str | None = None,
     tags: list[str] | None = None,
 ):
     """Decorator to register a check function.
-    The check id is the function name. Must return (status, evidence).
+    The check id is the function name. Checks must return a tuple ``(status, evidence)``
+    where ``status`` is a ``Status`` or a string value of the enum, and ``evidence`` is any value.
 
-    Optional selector is a callable that takes ONLY facts and returns bool.
+    Selectors (optional) control whether a check instance should run:
+    - ``selector=None``: run unconditionally after parametrization.
+    - ``selector`` as a comma-separated string of fact names (e.g., ``"is_ubuntu, has_systemd"``):
+      shorthand equivalent to ``ALL("is_ubuntu", "has_systemd")`` or ``is_ubuntu == True and has_systemd == True``.
+    - ``selector`` as a callable predicate: takes facts as parameters and returns a boolean depending on its logic.
+
+    Notes:
+    - Only facts are allowed in selectors; fixtures are not allowed.
+    - String selector parsing rejects empty tokens (e.g., ``"a,,b"``) with ``ValueError``.
+    - Validation of fact existence and production errors is performed during planning by the runner.
     """
 
     def _decorate(fn: Callable[..., Tuple[Status | str, Any]]):
+        # Normalize selector: accept callable or comma-separated string of fact names
+        sel_obj: Callable[..., bool] | None
+        if selector is None:
+            sel_obj = None
+        elif isinstance(selector, str):
+            tokens = [t.strip() for t in selector.split(",")]
+            if any(t == "" for t in tokens):
+                raise ValueError("Invalid selector string")
+            sel_obj = ALL(*tokens)
+        elif callable(selector):
+            sel_obj = selector
+        else:
+            raise ValueError("selector must be callable or string")
+
         # Attach metadata for planner
-        fn._mrkot_selector = selector  # type: ignore[attr-defined]
+        fn._mrkot_selector = sel_obj  # type: ignore[attr-defined]
         fn._mrkot_tags = list(tags or [])  # type: ignore[attr-defined]
         # Parametrization metadata list; each entry is (name, values|None, source|None)
         if not hasattr(fn, "_mrkot_params"):
