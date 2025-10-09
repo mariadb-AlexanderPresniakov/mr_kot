@@ -202,9 +202,20 @@ Output structure:
 
 The `overall` field is computed by severity ordering: `ERROR > FAIL > WARN > PASS`.
 
-## License
+---
 
-This project is licensed under the MIT License.
+## Plugins
 
-- SPDX-License-Identifier: MIT
-- See the `LICENSE` file at the repository root for full text.
+Mr. Kot can discover and load external plugins that register facts, fixtures, and checks at import time.
+
+- **Discovery sources**
+  - Entry points: installed distributions that declare the entry-point group `mr_kot.plugins` are discovered and imported.
+  - Explicit list: pass modules via the CLI `--plugins pkg1,pkg2` to import them first, in order.
+
+- **Order and dedup**
+  - CLI `--plugins` are imported first (left to right), then entry-point plugins sorted by their entry-point name.
+  - If the same module appears in both, it is imported only once.
+
+- **Uniqueness rule**
+  - IDs (function names) must be unique across all loaded plugins and the current module; collisions abort the run.
+
