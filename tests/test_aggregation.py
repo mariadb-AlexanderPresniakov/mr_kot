@@ -14,9 +14,9 @@ class TestAggregation:
             return (Status.PASS, "")
 
         res = run()
-        assert res["overall"] == "PASS"
-        assert res["counts"]["PASS"] == 2
-        assert res["counts"]["FAIL"] == 0
+        assert res.overall == Status.PASS
+        assert res.counts[Status.PASS] == 2
+        assert res.counts[Status.FAIL] == 0
 
     def test_warn_sets_overall_warn(self) -> None:
         @check
@@ -28,8 +28,8 @@ class TestAggregation:
             return (Status.WARN, "w")
 
         res = run()
-        assert res["overall"] == "WARN"
-        assert res["counts"]["WARN"] == 1
+        assert res.overall == Status.WARN
+        assert res.counts[Status.WARN] == 1
 
     def test_fail_sets_overall_fail(self) -> None:
         @check
@@ -41,8 +41,8 @@ class TestAggregation:
             return (Status.FAIL, "no")
 
         res = run()
-        assert res["overall"] == "FAIL"
-        assert res["counts"]["FAIL"] == 1
+        assert res.overall == Status.FAIL
+        assert res.counts[Status.FAIL] == 1
 
     def test_error_counts_as_fail_severity(self) -> None:
         @check
@@ -50,8 +50,8 @@ class TestAggregation:
             raise RuntimeError("boom")
 
         res = run()
-        assert res["overall"] == "FAIL"
-        assert res["counts"]["ERROR"] == 1
+        assert res.overall == Status.FAIL
+        assert res.counts[Status.ERROR] == 1
 
     def test_skip_does_not_affect_overall(self) -> None:
         @check
@@ -59,5 +59,5 @@ class TestAggregation:
             return (Status.SKIP, "reason")
 
         res = run()
-        assert res["overall"] == "PASS"  # only SKIP present does not worsen
-        assert res["counts"]["SKIP"] == 1
+        assert res.overall == Status.PASS  # only SKIP present does not worsen
+        assert res.counts[Status.SKIP] == 1

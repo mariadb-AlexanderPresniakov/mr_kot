@@ -31,6 +31,16 @@ class CheckResult:
     tags: List[str]
 
 
+@dataclass
+class RunResult:
+    # Overall status severity for the whole run, computed from item statuses
+    overall: Status
+    # Per-status counts aggregated over all items
+    counts: Dict[Status, int]
+    # Flat list of all check results
+    items: List[CheckResult]
+
+
 _LOGGER_NAME = "mr_kot"
 
 
@@ -41,8 +51,8 @@ class Runner:
         self._include_tags: bool = include_tags
         self._init_logger(verbose)
 
-    def run(self) -> Dict[str, Any]:
-        """Run all registered checks with resolved facts and return machine-readable dict."""
+    def run(self) -> RunResult:
+        """Run all registered checks and return a typed RunResult dataclass."""
         results: list[CheckResult] = []
 
         self._log_registry_summary()
@@ -346,7 +356,7 @@ class Runner:
                 status, evidence = self._run_check_instance(check_fn, param_bindings, fact_overrides)
             except Exception as exc:
                 status, evidence = Status.ERROR, f"exception: {exc.__class__.__name__}: {exc}"
-            self._logger.info("[check] run id=%s status=%s evidence=%r", inst_id, status.value, evidence)
+            self._logger.info("[check] run id=%s status=%s evidence=%r", inst_id, status, evidence)
             out.append(CheckResult(id=inst_id, status=status, evidence=evidence, tags=tags))
         return out
 
@@ -396,43 +406,33 @@ class Runner:
             raise ValueError(f"Invalid status type '{type(status_raw).__name__}' in check '{fn.__name__}'")
         return status, evidence
 
-    def _build_output(self, results: list[CheckResult]) -> Dict[str, Any]:
-        items: list[Dict[str, Any]] = []
-        for r in results:
-            item = {"id": r.id, "status": r.status.value, "evidence": r.evidence}
-            if self._include_tags:
-                item["tags"] = r.tags
-            items.append(item)
-        counts: Counter[str] = Counter(r.status.value for r in results)
+    def _build_output(self, results: list[CheckResult]) -> RunResult:
+        # Build counts keyed by Status
+        counts: Counter[Status] = Counter(r.status for r in results)
         # ensure all keys present
-        for k in ["PASS", "FAIL", "WARN", "SKIP", "ERROR"]:
+        for k in [Status.PASS, Status.FAIL, Status.WARN, Status.SKIP, Status.ERROR]:
             counts.setdefault(k, 0)
 
         overall: Status = Status.PASS
         # ERROR/FAIL dominate, then WARN, else PASS (SKIP ignored for severity)
-        if counts["ERROR"] > 0 or counts["FAIL"] > 0:
+        if counts[Status.ERROR] > 0 or counts[Status.FAIL] > 0:
             overall = Status.FAIL
-        elif counts["WARN"] > 0:
+        elif counts[Status.WARN] > 0:
             overall = Status.WARN
         else:
             overall = Status.PASS
 
-        summary = {
-            "overall": overall.value,
-            "counts": dict(counts),
-            "items": items,
-        }
         # INFO summary
         self._logger.info(
             "[summary] PASS=%d FAIL=%d WARN=%d SKIP=%d ERROR=%d overall=%s",
-            summary["counts"]["PASS"],
-            summary["counts"]["FAIL"],
-            summary["counts"]["WARN"],
-            summary["counts"]["SKIP"],
-            summary["counts"]["ERROR"],
-            summary["overall"],
+            counts[Status.PASS],
+            counts[Status.FAIL],
+            counts[Status.WARN],
+            counts[Status.SKIP],
+            counts[Status.ERROR],
+            overall,
         )
-        return summary
+        return RunResult(overall=overall, counts=dict(counts), items=results)
 
     # ----- Planner helpers -----
     def _expand_params(self, base_id: str, check_fn: Callable[..., Any]) -> list[tuple[str, Dict[str, Any]]]:
@@ -600,6 +600,6 @@ class Runner:
                 self._logger.debug("[fixture] teardown executed")
 
 
-def run() -> Dict[str, Any]:
-    """Convenience function: run all checks and return output dict."""
+def run() -> RunResult:
+    """Convenience function: run all checks and return RunResult."""
     return Runner().run()

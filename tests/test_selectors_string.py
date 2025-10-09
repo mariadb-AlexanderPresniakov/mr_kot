@@ -16,8 +16,8 @@ def test_selector_string_single_fact_true_runs() -> None:
         return (Status.PASS, "ok")
 
     res = Runner().run()
-    item = next(i for i in res["items"] if i["id"] == "c")
-    assert item["status"] == "PASS"
+    item = next(i for i in res.items if i.id == "c")
+    assert item.status == Status.PASS
 
 
 def test_selector_string_single_fact_false_skips() -> None:
@@ -30,9 +30,9 @@ def test_selector_string_single_fact_false_skips() -> None:
         return (Status.PASS, "never")
 
     res = Runner().run()
-    item = next(i for i in res["items"] if i["id"] == "c")
-    assert item["status"] == "SKIP"
-    assert item["evidence"] == "selector=false"
+    item = next(i for i in res.items if i.id == "c")
+    assert item.status == Status.SKIP
+    assert item.evidence == "selector=false"
 
 
 def test_selector_string_multiple_facts_all_true_runs() -> None:
@@ -49,8 +49,8 @@ def test_selector_string_multiple_facts_all_true_runs() -> None:
         return (Status.PASS, "ok")
 
     res = Runner().run()
-    item = next(i for i in res["items"] if i["id"] == "c")
-    assert item["status"] == "PASS"
+    item = next(i for i in res.items if i.id == "c")
+    assert item.status == Status.PASS
 
 
 def test_selector_string_multiple_facts_one_false_skips() -> None:
@@ -67,8 +67,8 @@ def test_selector_string_multiple_facts_one_false_skips() -> None:
         return (Status.PASS, "never")
 
     res = Runner().run()
-    item = next(i for i in res["items"] if i["id"] == "c")
-    assert item["status"] == "SKIP"
+    item = next(i for i in res.items if i.id == "c")
+    assert item.status == Status.SKIP
 
 
 def test_selector_string_invalid_format_raises() -> None:
@@ -88,5 +88,5 @@ def test_selector_callable_still_supported() -> None:
         return (Status.PASS, "ok")
 
     res = Runner().run()
-    item = next(i for i in res["items"] if i["id"] == "c")
-    assert item["status"] == "PASS"
+    item = next(i for i in res.items if i.id == "c")
+    assert item.status == Status.PASS

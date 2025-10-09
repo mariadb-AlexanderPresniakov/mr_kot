@@ -16,9 +16,9 @@ class TestTags:
 
         # Use Runner with include_tags=True to expose tags in machine-readable output
         result = Runner(include_tags=True).run()
-        item = next(i for i in result["items"] if i["id"].startswith("tagged"))
-        assert item["status"] == "PASS"
-        assert sorted(item["tags"]) == ["security", "storage"]
+        item = next(i for i in result.items if i.id.startswith("tagged"))
+        assert item.status == Status.PASS
+        assert sorted(item.tags) == ["security", "storage"]
 
     def test_filter_by_single_tag(self, tmp_path: Path, capsys) -> None:
         file = tmp_path / "mod_tags.py"

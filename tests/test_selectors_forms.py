@@ -17,8 +17,8 @@ class TestPredicateSelectors:
             return (Status.PASS, os_release["id"])  # type: ignore[index]
 
         res = Runner().run()
-        item = next(i for i in res["items"] if i["id"] == "c")
-        assert item["status"] == "PASS"
+        item = next(i for i in res.items if i.id == "c")
+        assert item.status == Status.PASS
 
     def test_predicate_false_skips(self) -> None:
         @fact
@@ -30,9 +30,9 @@ class TestPredicateSelectors:
             return (Status.PASS, "never")
 
         res = Runner().run()
-        item = next(i for i in res["items"] if i["id"] == "c")
-        assert item["status"] == "SKIP"
-        assert item["evidence"] == "selector=false"
+        item = next(i for i in res.items if i.id == "c")
+        assert item.status == Status.SKIP
+        assert item.evidence == "selector=false"
 
     def test_unknown_fact_aborts(self) -> None:
         @check(selector=lambda nope: True)
@@ -84,7 +84,7 @@ class TestHelperPredicates:
             return (Status.PASS, "ok")
 
         res = Runner().run()
-        assert res["overall"] == "PASS"
+        assert res.overall == Status.PASS
 
     def test_all_one_false_skips(self) -> None:
         @fact
@@ -100,8 +100,8 @@ class TestHelperPredicates:
             return (Status.PASS, "ok")
 
         res = Runner().run()
-        item = next(i for i in res["items"] if i["id"] == "c")
-        assert item["status"] == "SKIP"
+        item = next(i for i in res.items if i.id == "c")
+        assert item.status == Status.SKIP
 
     def test_any_one_true_runs(self) -> None:
         @fact
@@ -117,7 +117,7 @@ class TestHelperPredicates:
             return (Status.PASS, "ok")
 
         res = Runner().run()
-        assert res["overall"] == "PASS"
+        assert res.overall == Status.PASS
 
     def test_any_all_false_skips(self) -> None:
         @fact
@@ -133,8 +133,8 @@ class TestHelperPredicates:
             return (Status.PASS, "ok")
 
         res = Runner().run()
-        item = next(i for i in res["items"] if i["id"] == "c")
-        assert item["status"] == "SKIP"
+        item = next(i for i in res.items if i.id == "c")
+        assert item.status == Status.SKIP
 
     def test_not_negates(self) -> None:
         @fact
@@ -146,8 +146,8 @@ class TestHelperPredicates:
             return (Status.PASS, "ok")
 
         res = Runner().run()
-        item = next(i for i in res["items"] if i["id"] == "c")
-        assert item["status"] == "SKIP"
+        item = next(i for i in res.items if i.id == "c")
+        assert item.status == Status.SKIP
 
     def test_helper_unknown_fact_aborts(self) -> None:
         @check(selector=ALL("missing"))
@@ -183,7 +183,7 @@ class TestHelperPredicates:
             return (Status.PASS, mount)
 
         res = Runner().run()
-        ids = sorted(i["id"] for i in res["items"])
+        ids = sorted(i.id for i in res.items)
         assert ids == ["c[mount='/data']", "c[mount='/logs']"]
         # present() called once per instance with same-named param binding
         assert calls == ["/data", "/logs"]

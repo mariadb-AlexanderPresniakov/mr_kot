@@ -12,11 +12,18 @@ def test_run_api_shape() -> None:
         return (Status.PASS, "ok")
 
     result = run()
-    assert set(result.keys()) == {"overall", "counts", "items"}
-    assert result["overall"] in {"PASS", "FAIL", "WARN"}
-    assert all(k in result["counts"] for k in ["PASS", "FAIL", "WARN", "SKIP", "ERROR"])
-    assert isinstance(result["items"], list)
-    assert all(set(i.keys()) == {"id", "status", "evidence"} for i in result["items"])
+    # RunResult dataclass shape
+    from mr_kot.runner import RunResult, CheckResult
+
+    assert isinstance(result, RunResult)
+    assert hasattr(result, "overall") and hasattr(result, "counts") and hasattr(result, "items")
+    assert result.overall in {Status.PASS, Status.FAIL, Status.WARN}
+    # counts contain all statuses as keys
+    for k in [Status.PASS, Status.FAIL, Status.WARN, Status.SKIP, Status.ERROR]:
+        assert k in result.counts
+    # items are CheckResult instances
+    assert isinstance(result.items, list)
+    assert all(isinstance(i, CheckResult) for i in result.items)
 
 
 def test_cli_run_with_temp_module(tmp_path) -> None:

@@ -72,11 +72,19 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(f"planning error: {exc}\n")
             return 2
         if ns.human:
-            for item in result.get("items", []):
-                sys.stdout.write(f"{item['status']:<5} {item['id']}: {item['evidence']}\n")
-            sys.stdout.write(f"OVERALL: {result.get('overall')}\n")
+            for r in result.items:
+                sys.stdout.write(f"{r.status.value:<5} {r.id}: {r.evidence}\n")
+            sys.stdout.write(f"OVERALL: {result.overall.value}\n")
         else:
-            json.dump(result, sys.stdout, ensure_ascii=False)
+            out = {
+                "overall": result.overall.value,
+                "counts": {k.value: v for k, v in result.counts.items()},
+                "items": [
+                    {"id": r.id, "status": r.status.value, "evidence": r.evidence, "tags": r.tags}
+                    for r in result.items
+                ],
+            }
+            json.dump(out, sys.stdout, ensure_ascii=False)
             sys.stdout.write("\n")
         return 0
 

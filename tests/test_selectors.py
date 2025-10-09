@@ -17,9 +17,9 @@ class TestSelectorsBasic:
             return (Status.PASS, os_release["id"])  # should run
 
         res = run()
-        items = [i for i in res["items"] if i["id"].startswith("c")]
+        items = [i for i in res.items if i.id.startswith("c")]
         assert len(items) == 1
-        assert items[0]["status"] == "PASS"
+        assert items[0].status == Status.PASS
 
     def test_selector_false_excludes_check(self) -> None:
         @fact
@@ -32,10 +32,10 @@ class TestSelectorsBasic:
 
         res = run()
         # Selector=false emits a SKIP item noting selector=false
-        items = [i for i in res["items"] if i["id"] == "c"]
+        items = [i for i in res.items if i.id == "c"]
         assert len(items) == 1
-        assert items[0]["status"] == "SKIP"
-        assert items[0]["evidence"] == "selector=false"
+        assert items[0].status == Status.SKIP
+        assert items[0].evidence == "selector=false"
 
     def test_selector_exception_marks_error(self) -> None:
         @fact
@@ -50,10 +50,10 @@ class TestSelectorsBasic:
             return (Status.PASS, "never")
 
         res = run()
-        items = [i for i in res["items"] if i["id"] == "c"]
+        items = [i for i in res.items if i.id == "c"]
         assert len(items) == 1
-        assert items[0]["status"] == "ERROR"
-        assert "boom" in str(items[0]["evidence"]).lower()
+        assert items[0].status == Status.ERROR
+        assert "boom" in str(items[0].evidence).lower()
 
 
 class TestSelectorsFactsOnly:
@@ -88,7 +88,7 @@ class TestSelectorsFactsOnly:
             return (Status.PASS, a)
 
         res = run()
-        assert res["overall"] == "PASS"
+        assert res.overall == Status.PASS
         assert calls == ["A"]  # only A computed during selector + later when needed (memoized)
 
 
@@ -110,5 +110,5 @@ class TestSelectorsMemoizationAndIsolation:
             return (Status.PASS, counter)
 
         res = run()
-        assert res["overall"] == "PASS"
+        assert res.overall == Status.PASS
         assert calls == [1]  # computed once; reused for both selector and checks

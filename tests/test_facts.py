@@ -20,9 +20,9 @@ class TestFactsResolution:
             return (Status.PASS, b)
 
         result = run()
-        item = next(i for i in result["items"] if i["id"] == "uses_b")
-        assert item["status"] == "PASS"
-        assert item["evidence"] == 5
+        item = next(i for i in result.items if i.id == "uses_b")
+        assert item.status == Status.PASS
+        assert item.evidence == 5
 
     def test_fact_multi_level_chain(self) -> None:
         @fact
@@ -42,9 +42,9 @@ class TestFactsResolution:
             return (Status.PASS, top)
 
         result = run()
-        item = next(i for i in result["items"] if i["id"] == "uses_top")
-        assert item["status"] == "PASS"
-        assert item["evidence"] == 20
+        item = next(i for i in result.items if i.id == "uses_top")
+        assert item.status == Status.PASS
+        assert item.evidence == 20
 
     def test_fact_memoization_single_call(self) -> None:
         calls: list[int] = []
@@ -67,7 +67,7 @@ class TestFactsResolution:
             return (Status.PASS, (b, c))
 
         res = run()
-        assert res["overall"] == "PASS"
+        assert res.overall == Status.PASS
         assert calls == [1]  # computed once even if used twice
 
     def test_fact_not_computed_when_unused(self) -> None:
@@ -84,7 +84,7 @@ class TestFactsResolution:
             return (Status.PASS, used)
 
         res = run()
-        assert res["overall"] == "PASS"
+        assert res.overall == Status.PASS
 
     def test_missing_dependency_marks_error(self) -> None:
         @fact
@@ -96,8 +96,8 @@ class TestFactsResolution:
             return (Status.PASS, needs_missing)
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "user")
-        assert item["status"] == "ERROR"
+        item = next(i for i in res.items if i.id == "user")
+        assert item.status == Status.ERROR
 
     def test_cycle_detection_between_facts(self) -> None:
         @fact
@@ -113,8 +113,8 @@ class TestFactsResolution:
             return (Status.PASS, x)
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "use_x")
-        assert item["status"] == "ERROR"
+        item = next(i for i in res.items if i.id == "use_x")
+        assert item.status == Status.ERROR
 
     def test_fact_exception_marks_dependents_error(self) -> None:
         @fact
@@ -126,8 +126,8 @@ class TestFactsResolution:
             return (Status.PASS, boom)
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "uses_boom")
-        assert item["status"] == "ERROR"
+        item = next(i for i in res.items if i.id == "uses_boom")
+        assert item.status == Status.ERROR
 
 
 class TestFactsPurityAndStability:
@@ -152,9 +152,9 @@ class TestFactsPurityAndStability:
             return (Status.PASS, id1 == id2)
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "compare")
-        assert item["status"] == "PASS"
-        assert item["evidence"] is True
+        item = next(i for i in res.items if i.id == "compare")
+        assert item.status == Status.PASS
+        assert item.evidence is True
 
     def test_runner_does_not_precompute_all_facts(self) -> None:
         @fact
@@ -166,4 +166,4 @@ class TestFactsPurityAndStability:
             return (Status.PASS, "ok")
 
         res = run()
-        assert res["overall"] == "PASS"
+        assert res.overall == Status.PASS

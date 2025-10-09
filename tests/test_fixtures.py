@@ -16,9 +16,9 @@ class TestFixturesInjection:
             return (Status.PASS, client["v"])  # type: ignore[index]
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "c")
-        assert item["status"] == "PASS"
-        assert item["evidence"] == "ok"
+        item = next(i for i in res.items if i.id == "c")
+        assert item.status == Status.PASS
+        assert item.evidence == "ok"
 
     def test_fixture_yield_teardown_runs(self) -> None:
         calls: list[str] = []
@@ -36,7 +36,7 @@ class TestFixturesInjection:
             return (Status.PASS, "x")
 
         res_out = run()
-        assert res_out["overall"] == "PASS"
+        assert res_out.overall == Status.PASS
         assert calls == ["build", "teardown"]
 
     def test_fixture_per_check_scope_fresh_instance(self) -> None:
@@ -59,7 +59,7 @@ class TestFixturesInjection:
             return (Status.PASS, "")
 
         res = run()
-        assert res["overall"] == "PASS"
+        assert res.overall == Status.PASS
         assert len(seen) == 2  # fresh per check instance
 
     def test_fixture_teardown_runs_on_check_exception(self) -> None:
@@ -78,8 +78,8 @@ class TestFixturesInjection:
             raise RuntimeError("oops")
 
         out = run()
-        item = next(i for i in out["items"] if i["id"] == "boom")
-        assert item["status"] == "ERROR"
+        item = next(i for i in out.items if i.id == "boom")
+        assert item.status == Status.ERROR
         assert calls == ["build", "teardown"]
 
 
@@ -98,9 +98,9 @@ class TestFixturesDeps:
             return (Status.PASS, mtu)
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "c")
-        assert item["status"] == "PASS"
-        assert item["evidence"] == 1500
+        item = next(i for i in res.items if i.id == "c")
+        assert item.status == Status.PASS
+        assert item.evidence == 1500
 
     def test_fixture_can_depend_on_fixture_simple(self) -> None:
         calls: list[str] = []
@@ -126,9 +126,9 @@ class TestFixturesDeps:
             return (Status.PASS, derived)
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "c")
-        assert item["status"] == "PASS"
-        assert item["evidence"] == "B:D"
+        item = next(i for i in res.items if i.id == "c")
+        assert item.status == Status.PASS
+        assert item.evidence == "B:D"
         assert calls == ["b+", "d+", "d-", "b-"]  # reverse teardown order
 
 
@@ -147,5 +147,5 @@ class TestFixturesSelectorBoundary:
             return (Status.PASS, "ok")
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "c")
-        assert item["status"] == "PASS"
+        item = next(i for i in res.items if i.id == "c")
+        assert item.status == Status.PASS

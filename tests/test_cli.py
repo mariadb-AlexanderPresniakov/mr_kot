@@ -13,11 +13,11 @@ class TestCLIList:
             """
 from mr_kot import check, Status
 
-@check(tags=["a","b"]) 
+@check(tags=["a","b"])
 def c1():
     return (Status.PASS, "ok1")
 
-@check(tags=["x"]) 
+@check(tags=["x"])
 def c2():
     return (Status.PASS, "ok2")
 """
@@ -36,11 +36,11 @@ class TestCLIFiltering:
             """
 from mr_kot import check, Status
 
-@check(tags=["db"]) 
+@check(tags=["db"])
 def db_ok():
     return (Status.PASS, "db")
 
-@check(tags=["net"]) 
+@check(tags=["net"])
 def net_ok():
     return (Status.PASS, "net")
 """
@@ -53,18 +53,18 @@ def net_ok():
         assert '"db_ok"' in out and '"net_ok"' not in out
 
 
-class TestCLIHUMANOutput:
+class TestCLIHumanOutput:
     def test_human_output_summary_format(self, tmp_path: Path, capsys) -> None:
         file = tmp_path / "mod_human.py"
         file.write_text(
             """
 from mr_kot import check, Status
 
-@check 
+@check
 def ok():
     return (Status.PASS, "it works")
 
-@check 
+@check
 def bad():
     return (Status.FAIL, "oops")
 """
@@ -83,7 +83,7 @@ def bad():
             """
 from mr_kot import check, Status
 
-@check 
+@check
 def warn():
     return (Status.WARN, "heads up")
 """

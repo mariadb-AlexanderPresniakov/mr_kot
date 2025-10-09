@@ -27,8 +27,8 @@ class TestDependsBasics:
             return (Status.PASS, "ok")
 
         out = run()
-        item = next(i for i in out["items"] if i["id"] == "c")
-        assert item["status"] == "PASS"
+        item = next(i for i in out.items if i.id == "c")
+        assert item.status == Status.PASS
         assert calls == ["build", "teardown"]
 
     def test_depends_fact_resolved_without_param(self) -> None:
@@ -45,8 +45,8 @@ class TestDependsBasics:
             return (Status.PASS, "ok")
 
         out = run()
-        item = next(i for i in out["items"] if i["id"] == "c")
-        assert item["status"] == "PASS"
+        item = next(i for i in out.items if i.id == "c")
+        assert item.status == Status.PASS
         assert calls == ["cfg"]
 
     def test_depends_unknown_name_is_planning_error(self) -> None:
@@ -69,9 +69,9 @@ class TestDependsBasics:
             return (Status.PASS, "never")
 
         out = run()
-        item = next(i for i in out["items"] if i["id"] == "c")
-        assert item["status"] == "ERROR"
-        assert "depends failed" in item["evidence"]
+        item = next(i for i in out.items if i.id == "c")
+        assert item.status == Status.ERROR
+        assert "depends failed" in str(item.evidence)
 
     def test_depends_fixture_failure_marks_error_instance_and_teardown_prior(self) -> None:
         calls: list[str] = []
@@ -94,8 +94,8 @@ class TestDependsBasics:
             return (Status.PASS, "never")
 
         out = run()
-        item = next(i for i in out["items"] if i["id"] == "c")
-        assert item["status"] == "ERROR"
+        item = next(i for i in out.items if i.id == "c")
+        assert item.status == Status.ERROR
         # ok teardown must have run even though broken failed to build
         assert calls == ["ok+", "ok-"]
 
@@ -110,9 +110,9 @@ class TestDependsBasics:
             return (Status.PASS, config["k"])  # type: ignore[index]
 
         out = run()
-        item = next(i for i in out["items"] if i["id"] == "c")
-        assert item["status"] == "PASS"
-        assert item["evidence"] == "v"
+        item = next(i for i in out.items if i.id == "c")
+        assert item.status == Status.PASS
+        assert item.evidence == "v"
 
 
 class TestDependsLogging:

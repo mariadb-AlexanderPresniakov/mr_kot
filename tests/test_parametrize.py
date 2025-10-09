@@ -11,7 +11,7 @@ class TestParametrizeInline:
             return (Status.PASS, path)
 
         res = run()
-        ids = sorted(i["id"] for i in res["items"])
+        ids = sorted(i.id for i in res.items)
         assert ids == ["check_path[path='/data']", "check_path[path='/logs']"]
 
     def test_inline_ids_are_stable_and_sorted(self) -> None:
@@ -21,7 +21,7 @@ class TestParametrizeInline:
             return (Status.PASS, v)
 
         res = run()
-        ids = [i["id"] for i in res["items"]]
+        ids = [i.id for i in res.items]
         # Order should be deterministic by planner expansion order (definition order of values)
         assert ids == ["c[v=3]", "c[v=1]", "c[v=2]"]
 
@@ -38,7 +38,7 @@ class TestParametrizeFromFact:
             return (Status.PASS, svc)
 
         res = run()
-        ids = sorted(i["id"] for i in res["items"])
+        ids = sorted(i.id for i in res.items)
         assert ids == ["svc_present[svc='cron']", "svc_present[svc='sshd']"]
 
     def test_empty_enumeration_yields_no_instances(self) -> None:
@@ -53,7 +53,7 @@ class TestParametrizeFromFact:
 
         res = run()
         # No items emitted
-        assert all(not i["id"].startswith("c[") for i in res["items"]) or res["items"] == []
+        assert all(not i.id.startswith("c[") for i in res.items) or res.items == []
 
     def test_param_source_must_be_sequence(self) -> None:
         @fact
@@ -67,8 +67,8 @@ class TestParametrizeFromFact:
 
         # Will error when iterating over non-sequence in planner
         res = run()
-        item = next(i for i in res["items"] if i["id"].startswith("c"))
-        assert item["status"] == "ERROR"
+        item = next(i for i in res.items if i.id.startswith("c"))
+        assert item.status == Status.ERROR
 
 
 class TestParametrizeCartesian:
@@ -80,7 +80,7 @@ class TestParametrizeCartesian:
             return (Status.PASS, f"{iface}:{mtu}")
 
         res = run()
-        ids = sorted(i["id"] for i in res["items"])
+        ids = sorted(i.id for i in res.items)
         assert ids == [
             "link_ok[iface='eth0',mtu=1280]",
             "link_ok[iface='eth0',mtu=1500]",
@@ -96,7 +96,7 @@ class TestParametrizeCartesian:
             return (Status.PASS, f"{x}{y}")
 
         res = run()
-        ids = [i["id"] for i in res["items"]]
+        ids = [i.id for i in res.items]
         assert ids == ["c[x=1,y='a']", "c[x=1,y='b']", "c[x=2,y='a']", "c[x=2,y='b']"]
 
 
@@ -118,7 +118,7 @@ class TestParametrizeFixturesInteraction:
             return (Status.PASS, n)
 
         out = run()
-        assert out["overall"] == "PASS"
+        assert out.overall == Status.PASS
         # Three instances -> three builds and teardowns
         assert calls == ["build", "teardown", "build", "teardown", "build", "teardown"]
 
@@ -136,5 +136,5 @@ class TestParametrizeFixturesInteraction:
             return (Status.PASS, counter + n)
 
         res = run()
-        assert res["overall"] == "PASS"
+        assert res.overall == Status.PASS
         assert calls == [1]  # fact computed once across many instances

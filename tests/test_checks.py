@@ -14,9 +14,9 @@ class TestCheckExecution:
             return (Status.PASS, info["k"])
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "c")
-        assert item["status"] == "PASS"
-        assert item["evidence"] == "v"
+        item = next(i for i in res.items if i.id == "c")
+        assert item.status == Status.PASS
+        assert item.evidence == "v"
 
     def test_check_invalid_return_shape_is_error(self) -> None:
         @check
@@ -24,8 +24,8 @@ class TestCheckExecution:
             return "oops"
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "bad_shape")
-        assert item["status"] == "ERROR"
+        item = next(i for i in res.items if i.id == "bad_shape")
+        assert item.status == Status.ERROR
 
     def test_check_invalid_status_is_error(self) -> None:
         @check
@@ -33,8 +33,8 @@ class TestCheckExecution:
             return ("NOT_A_STATUS", "e")
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "bad_status")
-        assert item["status"] == "ERROR"
+        item = next(i for i in res.items if i.id == "bad_status")
+        assert item.status == Status.ERROR
 
     def test_checks_independent_of_order(self) -> None:
         calls: list[str] = []
@@ -50,9 +50,9 @@ class TestCheckExecution:
             return (Status.PASS, "b")
 
         res = run()
-        assert res["overall"] == "PASS"
+        assert res.overall == Status.PASS
         # Order of execution shouldn't affect results content
-        ids = {i["id"] for i in res["items"]}
+        ids = {i.id for i in res.items}
         assert ids == {"first", "second"}
 
     def test_unhandled_exception_in_check_becomes_error(self) -> None:
@@ -61,8 +61,8 @@ class TestCheckExecution:
             raise RuntimeError("nope")
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "boom")
-        assert item["status"] == "ERROR"
+        item = next(i for i in res.items if i.id == "boom")
+        assert item.status == Status.ERROR
 
 
 class TestCheckIdsAndNames:
@@ -76,7 +76,7 @@ class TestCheckIdsAndNames:
             return (Status.PASS, "")
 
         res = run()
-        ids = [i["id"] for i in res["items"]]
+        ids = [i.id for i in res.items]
         assert set(ids) == {"id1", "id2"}
 
     def test_ids_dont_change_with_registration_order(self) -> None:
@@ -89,7 +89,7 @@ class TestCheckIdsAndNames:
             return (Status.PASS, "")
 
         res = run()
-        ids = sorted(i["id"] for i in res["items"])  # sort to ignore insertion order
+        ids = sorted(i.id for i in res.items)  # sort to ignore insertion order
         assert ids == ["c1", "c2"]
 
 
@@ -100,9 +100,9 @@ class TestEvidenceHandling:
             return (Status.PASS, "")
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "empty")
-        assert item["status"] == "PASS"
-        assert item["evidence"] == ""
+        item = next(i for i in res.items if i.id == "empty")
+        assert item.status == Status.PASS
+        assert item.evidence == ""
 
     def test_evidence_long_and_unicode_ok(self) -> None:
         long = "😀" * 1000
@@ -112,6 +112,6 @@ class TestEvidenceHandling:
             return (Status.WARN, long)
 
         res = run()
-        item = next(i for i in res["items"] if i["id"] == "long_ev")
-        assert item["status"] == "WARN"
-        assert item["evidence"] == long
+        item = next(i for i in res.items if i.id == "long_ev")
+        assert item.status == Status.WARN
+        assert item.evidence == long
