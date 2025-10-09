@@ -4,7 +4,7 @@ import logging
 import sys
 from dataclasses import dataclass
 from importlib import import_module, metadata
-from typing import Iterable, List, Tuple, Set
+from typing import Iterable, List, Optional, Set, Tuple
 
 from .registry import CHECK_REGISTRY, FACT_REGISTRY, FIXTURE_REGISTRY
 
@@ -94,7 +94,7 @@ def _import_module_with_stats(module_path: str, logger: logging.Logger) -> Regis
     return RegistryView(facts=set(new_facts), fixtures=set(new_fixes), checks=set(new_checks))
 
 
-def load_plugins(explicit_modules: List[str] | None = None, *, verbose: bool = False) -> None:
+def load_plugins(explicit_modules: Optional[List[str]] = None, *, verbose: bool = False) -> None:
     """Load plugins from explicit module paths and entry points.
 
     - Import CLI-specified plugins first, in order.

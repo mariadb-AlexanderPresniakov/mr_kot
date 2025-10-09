@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mr_kot import fact, check, run, Status
+from mr_kot import Status, check, fact, run
 
 
 class TestFactsResolution:

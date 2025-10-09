@@ -6,6 +6,7 @@ import runpy
 import sys
 from importlib import import_module
 from pathlib import Path
+from typing import List, Optional, Set
 
 from .plugins import (
     PluginLoadError,
@@ -24,9 +25,8 @@ def _import_by_arg(arg: str) -> None:
         # treat as module path (e.g., package.module)
         import_module(arg)
 
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="mrkot", description="Mr. Kot invariant runner")
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(prog="mrkot", description="Mr. Kot, invariant checker")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_run = sub.add_parser("run", help="Run checks from a module or file")
@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         # Tags filtering
-        tagset: set[str] | None = None
+        tagset: Optional[Set[str]] = None
         if ns.tags:
             tagset = {t.strip() for t in ns.tags.split(",") if t.strip()}
 

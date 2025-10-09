@@ -7,8 +7,9 @@ import types
 from collections import Counter
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+from .param_spec import ParamSpec
 from .registry import CHECK_REGISTRY, FACT_REGISTRY, FIXTURE_REGISTRY
 
 # Predicate-only selectors; helpers live in selectors.py but are simple callables
@@ -45,9 +46,9 @@ _LOGGER_NAME = "mr_kot"
 
 
 class Runner:
-    def __init__(self, allowed_tags: set[str] | None = None, include_tags: bool = False, verbose: bool = False) -> None:
+    def __init__(self, allowed_tags: Optional[set[str]] = None, include_tags: bool = False, verbose: bool = False) -> None:
         self._fact_cache: Dict[str, Any] = {}
-        self._allowed_tags: set[str] | None = set(allowed_tags) if allowed_tags else None
+        self._allowed_tags: Optional[set[str]] = set(allowed_tags) if allowed_tags else None
         self._include_tags: bool = include_tags
         self._init_logger(verbose)
 
@@ -148,8 +149,9 @@ class Runner:
 
         # Param sources facts fail-fast
         for check_fn in CHECK_REGISTRY.values():
-            params = list(getattr(check_fn, "_mrkot_params", []) or [])
-            for _name, _values, source in params:
+            params: List[ParamSpec] = list(getattr(check_fn, "_mrkot_params", []) or [])
+            for entry in params:
+                source = entry.source
                 if source:
                     if source not in FACT_REGISTRY:
                         raise Runner.PlanningError(f"unknown fact in param source: {source}")
@@ -218,8 +220,10 @@ class Runner:
             if not runnable:
                 return out
 
-            # Execute filtered instances
-            out.extend(self._execute_instances(check_fn, runnable, check_tags))
+            # Execute filtered instances with optional fail-fast behavior
+            # Determine fail_fast from any parametrize decorator for this check (ParamSpec only)
+            pf = any(e.fail_fast for e in list(getattr(check_fn, "_mrkot_params", []) or []))
+            out.extend(self._execute_instances(check_id, check_fn, runnable, check_tags, pf))
             return out
         except Exception as exc:
             if isinstance(exc, Runner.PlanningError):
@@ -230,7 +234,7 @@ class Runner:
             return out
 
     # ----- High-level steps -----
-    def _evaluate_selector(self, check_id: str, check_fn: Callable[..., Any], tags: List[str]) -> Tuple[bool, CheckResult | None]:
+    def _evaluate_selector(self, check_id: str, check_fn: Callable[..., Any], tags: List[str]) -> Tuple[bool, Optional[CheckResult]]:
         sel = getattr(check_fn, "_mrkot_selector", None)
         if sel is None:
             return True, None
@@ -250,7 +254,9 @@ class Runner:
             return False, CheckResult(id=check_id, status=Status.SKIP, evidence="selector=false", tags=tags)
         return True, None
 
-    def _selector_allows_instance(self, check_id: str, selector: Any, params: Dict[str, Any]) -> Tuple[bool, str | None, Dict[str, Dict[str, Any]]]:
+    def _selector_allows_instance(
+        self, check_id: str, selector: Any, params: Dict[str, Any]
+        ) -> Tuple[bool, Optional[str], Dict[str, Dict[str, Any]]]:
         """Predicate-only evaluation for a single planned instance.
 
         - Resolve only the facts referenced by the predicate (helper metadata or signature).
@@ -315,7 +321,7 @@ class Runner:
 
     # legacy selector helpers removed; predicate-only is supported
 
-    def _resolve_fact_with_overrides(self, fact_id: str, overrides: Dict[str, Any], stack: list[str] | None = None) -> Any:
+    def _resolve_fact_with_overrides(self, fact_id: str, overrides: Dict[str, Any], stack: Optional[list[str]] = None) -> Any:
         """Resolve a fact allowing some parameters to be overridden.
 
         This does not memoize the result and is used only for selector binding checks.
@@ -346,21 +352,35 @@ class Runner:
 
     def _execute_instances(
         self,
-        check_fn: Callable[..., Tuple[Status | str, Any]],
+        check_id: str,
+        check_fn: Callable[..., Tuple[Union[Status, str], Any]],
         instances: List[Tuple[str, Dict[str, Any], Dict[str, Dict[str, Any]]]],
         tags: List[str],
+        fail_fast: bool,
     ) -> List[CheckResult]:
         out: list[CheckResult] = []
+        stop_due_to_fail = False
         for inst_id, param_bindings, fact_overrides in instances:
+            if stop_due_to_fail and fail_fast:
+                evidence = "skipped due to fail_fast after previous failure"
+                out.append(CheckResult(id=inst_id, status=Status.SKIP, evidence=evidence, tags=tags))
+                continue
             try:
                 status, evidence = self._run_check_instance(check_fn, param_bindings, fact_overrides)
             except Exception as exc:
                 status, evidence = Status.ERROR, f"exception: {exc.__class__.__name__}: {exc}"
             self._logger.info("[check] run id=%s status=%s evidence=%r", inst_id, status, evidence)
             out.append(CheckResult(id=inst_id, status=status, evidence=evidence, tags=tags))
+            if fail_fast and status in (Status.FAIL, Status.ERROR):
+                stop_due_to_fail = True
+                self._logger.info(
+                    "[parametrize] fail_fast: stopping remaining instances of %s after %s failed.",
+                    check_id,
+                    inst_id,
+                )
         return out
 
-    def _resolve_fact(self, fact_id: str, stack: list[str] | None = None) -> Any:
+    def _resolve_fact(self, fact_id: str, stack: Optional[list[str]] = None) -> Any:
         if stack is None:
             stack = []
         if fact_id in self._fact_cache:
@@ -380,7 +400,7 @@ class Runner:
         self._logger.debug("[fact] resolved %s=%s", fact_id, short)
         return value
 
-    def _resolve_args(self, fn: Callable[..., Any], stack: list[str] | None = None) -> Dict[str, Any]:
+    def _resolve_args(self, fn: Callable[..., Any], stack: Optional[list[str]] = None) -> Dict[str, Any]:
         sig = inspect.signature(fn)
         kwargs: Dict[str, Any] = {}
         for name, param in sig.parameters.items():
@@ -390,7 +410,7 @@ class Runner:
             kwargs[name] = self._resolve_fact(name, stack)
         return kwargs
 
-    def _run_check(self, fn: Callable[..., Tuple[Status | str, Any]], kwargs: Dict[str, Any]) -> Tuple[Status, Any]:
+    def _run_check(self, fn: Callable[..., Tuple[Union[Status, str], Any]], kwargs: Dict[str, Any]) -> Tuple[Status, Any]:
         result = fn(**kwargs)
         if not (isinstance(result, tuple) and len(result) == 2):
             raise ValueError(f"Check '{fn.__name__}' must return a (status, evidence) tuple")
@@ -439,14 +459,17 @@ class Runner:
         """Return list of (instance_id, param_bindings) for a check function.
         If no parametrization metadata, returns one instance with empty bindings.
         """
-        params: list[tuple[str, list[Any] | None, str | None]] = getattr(check_fn, "_mrkot_params", [])
+        params: List[ParamSpec] = getattr(check_fn, "_mrkot_params", [])
         if not params:
             return [(base_id, {})]
 
         # Build list of value lists for each param
         valued: list[tuple[str, list[Any]]] = []
         # Reverse to reflect source decorator order (top-to-bottom), since decorators apply bottom-up
-        for name, values, source in reversed(params):
+        for entry in reversed(params):
+            name = entry.name
+            values = entry.values
+            source = entry.source
             # source from fact if values is None
             seq = list(values) if values is not None else list(self._resolve_fact(source or ""))
             if not seq:
@@ -475,9 +498,9 @@ class Runner:
 
     def _run_check_instance(
         self,
-        fn: Callable[..., Tuple[Status | str, Any]],
+        fn: Callable[..., Tuple[Union[Status, str], Any]],
         params: Dict[str, Any],
-        fact_overrides: Dict[str, Dict[str, Any]] | None = None,
+        fact_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Tuple[Status, Any]:
         """Resolve facts and fixtures, merge with params, run fn, and teardown fixtures.
 
@@ -504,7 +527,7 @@ class Runner:
         if fact_overrides is None:
             fact_overrides = {}
 
-        def build_fixture(name: str, fstack: list[str] | None = None) -> Any:
+        def build_fixture(name: str, fstack: Optional[list[str]] = None) -> Any:
             if fstack is None:
                 fstack = []
             if name in fixture_cache:

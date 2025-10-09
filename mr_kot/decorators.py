@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, List, Optional, Tuple, Union
 
+from .param_spec import ParamSpec
 from .registry import register_check, register_fact, register_fixture
 from .selectors import ALL
 from .status import Status
@@ -15,10 +16,10 @@ def fact(func: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def check(
-    func: Callable[..., Tuple[Status | str, Any]] | None = None,
+    func: Optional[Callable[..., Tuple[Union[Status, str], Any]]] = None,
     *,
-    selector: Callable[..., bool] | str | None = None,
-    tags: list[str] | None = None,
+    selector: Optional[Union[Callable[..., bool], str]] = None,
+    tags: Optional[List[str]] = None,
 ):
     """Decorator to register a check function.
     The check id is the function name. Checks must return a tuple ``(status, evidence)``
@@ -36,9 +37,9 @@ def check(
     - Validation of fact existence and production errors is performed during planning by the runner.
     """
 
-    def _decorate(fn: Callable[..., Tuple[Status | str, Any]]):
+    def _decorate(fn: Callable[..., Tuple[Union[Status, str], Any]]):
         # Normalize selector: accept callable or comma-separated string of fact names
-        sel_obj: Callable[..., bool] | None
+        sel_obj: Optional[Callable[..., bool]]
         if selector is None:
             sel_obj = None
         elif isinstance(selector, str):
@@ -98,20 +99,29 @@ def fixture(func: Callable[..., Any]) -> Callable[..., Any]:
     return register_fixture(func)
 
 
-def parametrize(name: str, *, values: list[Any] | None = None, source: str | None = None):
+def parametrize(
+    name: str,
+    *,
+    values: Optional[List[Any]] = None,
+    source: Optional[str] = None,
+    fail_fast: bool = False,
+):
     """Decorator to parametrize a check function.
 
     - values: list of concrete values
     - source: name of a fact that yields an iterable of values
+    - fail_fast: when True, if any instance of this check fails (FAIL/ERROR), remaining
+      instances of the same check are skipped during execution.
     Multiple uses compose via Cartesian product.
-    """
 
+    """
     if (values is None) == (source is None):
         raise ValueError("parametrize requires exactly one of 'values' or 'source'")
 
     def _decorate(fn: Callable[..., Tuple[Status | str, Any]]):
-        params: list[tuple[str, list[Any] | None, str | None]] = getattr(fn, "_mrkot_params", [])
-        params.append((name, values, source))
+        # Store ParamSpec entries
+        params: list[Any] = list(getattr(fn, "_mrkot_params", []) or [])
+        params.append(ParamSpec(name=name, values=list(values) if values is not None else None, source=source, fail_fast=fail_fast))
         fn._mrkot_params = params  # type: ignore[attr-defined]
         return fn
 

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mr-kot"
-version = "0.6.0"
+version = "0.7.0"
 description = "Pytest-inspired invariant checker"
 authors = ["Alexander Presniakov <alexander.presniakov@mariadb.com>"]
 readme = "README.md"
@@ -55,4 +55,5 @@ ignore = [
   "UP006",  # prefer builtins (e.g., dict) over typing (Dict)
   "UP035",  # typing.Dict
   "UP007",  # prefer X | Y over typing.Union
+  "UP045",  # prefer X | Y over typing.Union
 ]

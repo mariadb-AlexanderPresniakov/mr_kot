@@ -142,31 +142,6 @@ Notes:
 - Fixtures are not allowed in selectors.
 - Facts used only as check arguments are produced at execution; failures mark that instance `ERROR` and the run continues.
 
-### Fixtures
-Fixtures are reusable resources. They are registered with `@fixture`.
-They can return a value directly, or yield a value and perform teardown afterward.
-For now, fixtures are per-check: each check call receives a fresh instance.
-
-Example:
-```python
-@fixture
-def tmp_path():
-    import tempfile, shutil
-    path = tempfile.mkdtemp()
-    try:
-        yield path
-    finally:
-        shutil.rmtree(path)
-
-@check
-def can_write_tmp(tmp_path):
-    import os
-    test_file = os.path.join(tmp_path, "test")
-    with open(test_file, "w") as f:
-        f.write("ok")
-    return (Status.PASS, f"wrote to {test_file}")
-```
-
 ### Parametrization
 Checks can be expanded into multiple instances with different arguments using `@parametrize`.
 
@@ -193,6 +168,43 @@ def unit_active(unit):
     return (Status.PASS, f"{unit} is active")
 ```
 
+Use `fail_fast=True` in `@parametrize` to stop executing remaining instances of the same check after the first `FAIL` or `ERROR`:
+
+```python
+@parametrize("mount", values=["/data", "/data/logs"], fail_fast=True)
+@check
+def mount_present(mount):
+    import os
+    return (Status.PASS, f"{mount} present") if os.path.exists(mount) else (Status.FAIL, f"{mount} missing")
+```
+
+When fail-fast triggers, remaining instances are emitted as `SKIP`.
+
+### Fixtures
+Fixtures are reusable resources. They are registered with `@fixture`.
+They can return a value directly, or yield a value and perform teardown afterward.
+For now, fixtures are per-check: each check call receives a fresh instance.
+
+Example:
+```python
+@fixture
+def tmp_path():
+    import tempfile, shutil
+    path = tempfile.mkdtemp()
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path)
+
+@check
+def can_write_tmp(tmp_path):
+    import os
+    test_file = os.path.join(tmp_path, "test")
+    with open(test_file, "w") as f:
+        f.write("ok")
+    return (Status.PASS, f"wrote to {test_file}")
+```
+
 ### Runner
 The runner discovers all facts, fixtures, and checks, evaluates selectors, expands parametrization, resolves dependencies, executes checks, and collects results.
 
@@ -207,12 +219,12 @@ Output structure:
     {"id": "mount_present[/logs]", "status": "FAIL", "evidence": "/logs missing"}
   ]
 }
-
+```
 The `overall` field is computed by severity ordering: `ERROR > FAIL > WARN > PASS`.
 
 ---
 
-## Plugins
+### Plugins
 
 Mr. Kot can discover and load external plugins that register facts, fixtures, and checks at import time.
 
