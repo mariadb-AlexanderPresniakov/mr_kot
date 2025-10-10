@@ -15,7 +15,11 @@ from typing import Any, Callable, Protocol, Tuple, Union, runtime_checkable
 
 from .status import Status
 
-# Public protocol: a validator is a callable over a single target that returns (status, evidence), just like checks
+# Normalized validator result shape
+ValidatorResult = Tuple[Status, str]
+
+# Public protocol: a validator is a callable over a single target that returns (status, evidence), just like checks.
+# Note: We allow either Status or str for status to support lightweight implementations; callers should normalize.
 Validator = Callable[[Any], Tuple[Union[Status, str], str]]
 
 _SEVERITY = {Status.ERROR: 3, Status.FAIL: 2, Status.WARN: 1, Status.PASS: 0}

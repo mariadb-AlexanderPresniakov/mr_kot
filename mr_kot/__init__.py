@@ -2,7 +2,7 @@ from .decorators import check, depends, fact, fixture, parametrize
 from .runner import run
 from .selectors import ALL, ANY, NOT
 from .status import Status
-from .validators import Validator, check_all
+from .validators import Validator, ValidatorResult, check_all
 
 __all__ = [
     "ALL",
@@ -10,6 +10,7 @@ __all__ = [
     "NOT",
     "Status",
     "Validator",
+    "ValidatorResult",
     "check",
     "check_all",
     "depends",
