@@ -46,11 +46,32 @@ _LOGGER_NAME = "mr_kot"
 
 
 class Runner:
-    def __init__(self, allowed_tags: Optional[set[str]] = None, include_tags: bool = False, verbose: bool = False) -> None:
+    def __init__(
+        self,
+        allowed_tags: Optional[set[str]] = None,
+        include_tags: bool = False,
+        verbose: bool = False,
+        *,
+        manage_logging: bool = False,
+        logger: Optional[logging.Logger] = None,
+    ) -> None:
+        """Runner orchestrates discovery and execution of checks.
+
+        Parameters:
+        - allowed_tags: optional set of tags to include
+        - include_tags: include tags in CheckResult
+        - verbose: when True and manage_logging=True, set logger to DEBUG
+        - manage_logging: when True, configure the package logger
+          with a StreamHandler bound to sys.stderr.
+          When False, do not add handlers nor change propagation; the host
+          application is expected to configure logging.
+        - logger: optional logger instance to use instead of the default
+          package logger name.
+        """
         self._fact_cache: Dict[str, Any] = {}
         self._allowed_tags: Optional[set[str]] = set(allowed_tags) if allowed_tags else None
         self._include_tags: bool = include_tags
-        self._init_logger(verbose)
+        self._init_logger(verbose, manage_logging=manage_logging, logger=logger)
 
     def run(self) -> RunResult:
         """Run all registered checks and return a typed RunResult dataclass."""
@@ -71,21 +92,35 @@ class Runner:
         return self._build_output(results)
 
     # ----- Private helpers -----
-    def _init_logger(self, verbose: bool) -> None:
+    def _init_logger(self, verbose: bool, *, manage_logging: bool, logger: Optional[logging.Logger]) -> None:
         """Initialize the runner logger.
 
         Logs are emitted to stderr. INFO by default, DEBUG when verbose=True.
         """
-        logger = logging.getLogger(_LOGGER_NAME)
-        # Reinitialize handler to bind to current sys.stderr for test capture
-        for h in list(logger.handlers):
-            logger.removeHandler(h)
-        handler = logging.StreamHandler(stream=sys.stderr)
-        handler.setFormatter(logging.Formatter("%(message)s"))
-        logger.addHandler(handler)
-        logger.propagate = False
-        logger.setLevel(logging.DEBUG if verbose else logging.INFO)
-        self._logger = logger
+        lg = logger or logging.getLogger(_LOGGER_NAME)
+        if manage_logging:
+            # Reinitialize handler to bind to current sys.stderr for test capture
+            for h in list(lg.handlers):
+                lg.removeHandler(h)
+            handler = logging.StreamHandler(stream=sys.stderr)
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            lg.addHandler(handler)
+            lg.propagate = False
+            lg.setLevel(logging.DEBUG if verbose else logging.INFO)
+        else:
+            # If only NullHandler(s) are attached (typical for libraries), treat it as
+            # effectively no real handler and attach a minimal stderr handler so tests
+            # and simple usages still see logs. Otherwise, leave configuration to host.
+            own_handlers = list(lg.handlers)
+            non_null_handlers = [h for h in own_handlers if not isinstance(h, logging.NullHandler)]
+            if not non_null_handlers:
+                handler = logging.StreamHandler(stream=sys.stderr)
+                handler.setFormatter(logging.Formatter("%(message)s"))
+                lg.addHandler(handler)
+                lg.propagate = False
+            # Ensure level matches verbosity so INFO lines appear in tests
+            lg.setLevel(logging.DEBUG if verbose else logging.INFO)
+        self._logger = lg
 
     def _log_registry_summary(self) -> None:
         """Log counts and names (DEBUG) for discovered registry items."""
@@ -369,14 +404,14 @@ class Runner:
                 status, evidence = self._run_check_instance(check_fn, param_bindings, fact_overrides)
             except Exception as exc:
                 status, evidence = Status.ERROR, f"exception: {exc.__class__.__name__}: {exc}"
-            self._logger.info("[check] run id=%s status=%s evidence=%r", inst_id, status, evidence)
+            self._logger.info(
+                f"[check] run id={inst_id} status={getattr(status, 'value', str(status))} evidence={evidence!r}"
+            )
             out.append(CheckResult(id=inst_id, status=status, evidence=evidence, tags=tags))
             if fail_fast and status in (Status.FAIL, Status.ERROR):
                 stop_due_to_fail = True
                 self._logger.info(
-                    "[parametrize] fail_fast: stopping remaining instances of %s after %s failed.",
-                    check_id,
-                    inst_id,
+                    f"[parametrize] fail_fast: stopping remaining instances of {check_id} after {inst_id} failed."
                 )
         return out
 
@@ -442,15 +477,11 @@ class Runner:
         else:
             overall = Status.PASS
 
-        # INFO summary
+        # INFO summary (preformatted to avoid interpolation mishaps in certain handlers)
         self._logger.info(
-            "[summary] PASS=%d FAIL=%d WARN=%d SKIP=%d ERROR=%d overall=%s",
-            counts[Status.PASS],
-            counts[Status.FAIL],
-            counts[Status.WARN],
-            counts[Status.SKIP],
-            counts[Status.ERROR],
-            overall,
+            f"[summary] PASS={counts[Status.PASS]} FAIL={counts[Status.FAIL]} "
+            f"WARN={counts[Status.WARN]} SKIP={counts[Status.SKIP]} "
+            f"ERROR={counts[Status.ERROR]} overall={getattr(overall, 'value', str(overall))}"
         )
         return RunResult(overall=overall, counts=dict(counts), items=results)
 
@@ -558,30 +589,30 @@ class Runner:
                 value = result
             fixture_cache[name] = value
             # DEBUG logs for fixtures
-            self._logger.debug("[fixture] built %s=%r", name, value)
+            self._logger.info("[fixture] built %s=%r", name, value)
             return value
 
         # Build kwargs
         # Prepare implicit dependencies declared via @depends before resolving normal args
         depends: List[str] = list(getattr(fn, "_mrkot_depends", []) or [])
         if depends:
-            self._logger.info("[depends] check=%s names=[%s]", fn.__name__, ",".join(depends))
+            self._logger.info(f"[depends] check={fn.__name__} names=[{','.join(depends)}]")
         try:
             for dep in depends:
                 if dep in FIXTURE_REGISTRY:
                     val = build_fixture(dep)
-                    self._logger.debug("[depends] fixture %s built=%r", dep, val)
+                    self._logger.info(f"[depends] fixture {dep} built={val!r}")
                 else:
                     # Resolve fact and discard value
                     val = self._resolve_fact(dep)
                     short = repr(val)
                     if len(short) > 200:
                         short = short[:200] + "..."
-                    self._logger.debug("[depends] fact %s resolved=%s", dep, short)
+                    self._logger.info(f"[depends] fact {dep} resolved={short}")
         except Exception as exc:
             # Ensure teardown of any already-built fixtures for depends
             evidence = f"depends failed: name={dep} reason={exc}"
-            self._logger.debug("[depends] error name=%s reason=%s", dep, exc)
+            self._logger.debug(f"[depends] error name={dep} reason={exc}")
             # Teardown in LIFO
             for td in reversed(teardowns):
                 with suppress(Exception):

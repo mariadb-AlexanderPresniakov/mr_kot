@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from mr_kot import Status, check, run
+from mr_kot import Status, check
 from mr_kot.cli import main as cli_main
 from mr_kot.runner import Runner
 
@@ -26,11 +26,11 @@ class TestTags:
             """
 from mr_kot import check, Status
 
-@check(tags=["storage"]) 
+@check(tags=["storage"])
 def disk_ok():
     return (Status.PASS, "disk")
 
-@check(tags=["network"]) 
+@check(tags=["network"])
 def net_ok():
     return (Status.PASS, "net")
 """
@@ -48,15 +48,15 @@ def net_ok():
             """
 from mr_kot import check, Status
 
-@check(tags=["storage"]) 
+@check(tags=["storage"])
 def disk_ok():
     return (Status.PASS, "disk")
 
-@check(tags=["network"]) 
+@check(tags=["network"])
 def net_ok():
     return (Status.PASS, "net")
 
-@check(tags=["security"]) 
+@check(tags=["security"])
 def sec_ok():
     return (Status.PASS, "sec")
 """
@@ -74,7 +74,7 @@ def sec_ok():
             """
 from mr_kot import check, Status
 
-@check(tags=["storage"]) 
+@check(tags=["storage"])
 def disk_ok():
     return (Status.PASS, "disk")
 """

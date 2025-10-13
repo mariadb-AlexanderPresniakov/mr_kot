@@ -65,7 +65,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             tagset = {t.strip() for t in ns.tags.split(",") if t.strip()}
 
         # Run
-        runner = Runner(allowed_tags=tagset, include_tags=True, verbose=ns.verbose)
+        runner = Runner(allowed_tags=tagset, include_tags=True, verbose=ns.verbose, manage_logging=True)
         try:
             result = runner.run()
         except Runner.PlanningError as exc:
