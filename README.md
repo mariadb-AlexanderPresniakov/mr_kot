@@ -37,10 +37,11 @@ Checks must return a tuple `(status, evidence)` where `status` is a `Status` enu
 You can use fact values inside a check to make a decision and craft evidence:
 
 ```python
+import os
 from mr_kot import check, Status, fact
+
 @fact
 def cpu_count() -> int:
-    import os
     return os.cpu_count() or 1
 
 @check
@@ -106,7 +107,6 @@ def system_not_in_maintenance():
     return (Status.PASS, "ok")
 ```
 
-#### Advanced selectors (predicate)
 Use a predicate when you need to inspect values. Predicates are evaluated with facts only (fixtures are not allowed) and must return a boolean.
 
 ```python
@@ -147,8 +147,8 @@ Checks can be expanded into multiple instances with different arguments using `@
 
 Inline values:
 ```python
-@parametrize("mount", values=["/data", "/logs"])
 @check
+@parametrize("mount", values=["/data", "/logs"])
 def mount_present(mount):
     import os
     if os.path.exists(mount):
@@ -162,8 +162,8 @@ Values from a fact:
 def systemd_units():
     return ["cron.service", "sshd.service"]
 
-@parametrize("unit", source="systemd_units")
 @check
+@parametrize("unit", source="systemd_units")
 def unit_active(unit):
     return (Status.PASS, f"{unit} is active")
 ```
@@ -171,8 +171,8 @@ def unit_active(unit):
 Use `fail_fast=True` in `@parametrize` to stop executing remaining instances of the same check after the first `FAIL` or `ERROR`:
 
 ```python
-@parametrize("mount", values=["/data", "/data/logs"], fail_fast=True)
 @check
+@parametrize("mount", values=["/data", "/data/logs"], fail_fast=True)
 def mount_present(mount):
     import os
     return (Status.PASS, f"{mount} present") if os.path.exists(mount) else (Status.FAIL, f"{mount} missing")

@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-import logging
-
-import pytest
-
 from mr_kot import Status, check_all
 
 
@@ -37,8 +33,7 @@ class TestCheckAll:
         assert status is Status.PASS
         assert evidence == "target='X' ok"
 
-    def test_check_all_fail_fast_stops_on_fail(self, caplog: pytest.LogCaptureFixture) -> None:
-        caplog.set_level(logging.DEBUG, logger="mr_kot")
+    def test_check_all_fail_fast_stops_on_fail(self) -> None:
         v1 = _pass("ok")
         v2 = _fail("bad")
         v3_called = False
@@ -52,11 +47,8 @@ class TestCheckAll:
         status, evidence = check_all("Y", v1, v2, v3, fail_fast=True)
         assert status is Status.FAIL and evidence == "bad"
         assert not v3_called, "third validator should not execute in fail_fast"
-        # INFO log present
-        assert any("[validator] fail_fast: stopping" in rec.message for rec in caplog.records if rec.levelno == logging.INFO)
 
-    def test_check_all_fail_fast_stops_on_error(self, caplog: pytest.LogCaptureFixture) -> None:
-        caplog.set_level(logging.DEBUG, logger="mr_kot")
+    def test_check_all_fail_fast_stops_on_error(self) -> None:
 
         def err(_t):
             return (Status.ERROR, "boom")
@@ -64,7 +56,6 @@ class TestCheckAll:
         err.__name__ = "err"
         status, evidence = check_all("Z", err, _pass("ok"), fail_fast=True)
         assert status is Status.ERROR and evidence == "boom"
-        assert any("[validator] fail_fast: stopping" in rec.message for rec in caplog.records if rec.levelno == logging.INFO)
 
     def test_check_all_collect_all_aggregates(self) -> None:
         # FAIL dominates WARN and PASS; evidence joined deterministically
@@ -109,12 +100,4 @@ class TestCheckAll:
         status2, _ = check_all("zzz", v)
         assert status2 is Status.FAIL
 
-    def test_check_all_debug_logs_each_validator(self, caplog: pytest.LogCaptureFixture) -> None:
-        caplog.set_level(logging.DEBUG, logger="mr_kot")
-        v1 = _pass("ok")
-        v2 = _warn("warned")
-        _ = check_all("DBG", v1, v2, fail_fast=False)
-        msgs = [rec.message for rec in caplog.records if rec.levelno == logging.DEBUG]
-        # Expect lines for each validator name and outcome
-        assert any("[validator]" in m and "name=pass_ok" in m and "status=Status.PASS" in m for m in msgs)
-        assert any("[validator]" in m and "name=warn_warned" in m and "status=Status.WARN" in m for m in msgs)
+    

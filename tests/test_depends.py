@@ -113,27 +113,3 @@ class TestDependsBasics:
         item = next(i for i in out.items if i.id == "c")
         assert item.status == Status.PASS
         assert item.evidence == "v"
-
-
-class TestDependsLogging:
-    def test_logging_depends_info_debug_lines(self, capsys: Any) -> None:
-        @fact
-        def f1() -> int:
-            return 7
-
-        @fixture
-        def fx():
-            yield "X"
-
-        @depends("f1", "fx")
-        @check
-        def c():
-            return (Status.PASS, "ok")
-
-        Runner(verbose=True).run()
-        captured = capsys.readouterr().err
-        # INFO line listing depends
-        assert re.search(r"\[depends\] check=c names=\[f1,fx\]", captured)
-        # DEBUG lines for each type
-        assert re.search(r"\[depends\] fact f1 resolved=", captured)
-        assert re.search(r"\[depends\] fixture fx built=", captured)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import runpy
 import sys
 from importlib import import_module
@@ -13,6 +14,7 @@ from .plugins import (
     discover_entrypoint_plugins,
     load_plugins,
 )
+from .runner import LOGGER_NAME
 from .registry import CHECK_REGISTRY
 from .runner import Runner
 
@@ -34,7 +36,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_run.add_argument("--list", action="store_true", help="List discovered checks and exit")
     p_run.add_argument("--tags", type=str, default="", help="Comma-separated tags to include")
     p_run.add_argument("--human", action="store_true", help="Print human-readable output instead of JSON")
-    p_run.add_argument("--verbose", action="store_true", help="Enable DEBUG logging to stderr")
+    p_run.add_argument("--verbose", action="store_true", help="Enable DEBUG logging to stderr (deprecated; use --log-level)")
+    p_run.add_argument(
+        "--log-level",
+        type=str,
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
+        default=None,
+        help="Logging level for mr_kot when using CLI",
+    )
     p_run.add_argument("--plugins", type=str, default="", help="Comma-separated plugin modules to import first")
 
     p_plugins = sub.add_parser("plugins", help="Plugins commands")
@@ -65,7 +74,24 @@ def main(argv: Optional[List[str]] = None) -> int:
             tagset = {t.strip() for t in ns.tags.split(",") if t.strip()}
 
         # Run
-        runner = Runner(allowed_tags=tagset, include_tags=True, verbose=ns.verbose, manage_logging=True)
+        # Compute effective log level: --verbose maps to DEBUG; else use --log-level or default WARNING
+        level = logging.WARNING
+        if ns.log_level:
+            level = getattr(logging, ns.log_level)
+        if ns.verbose:
+            level = logging.DEBUG
+
+        # Configure mr_kot logger for CLI: stderr handler, simple message format, no propagation
+        lg = logging.getLogger(LOGGER_NAME)
+        for h in list(lg.handlers):
+            lg.removeHandler(h)
+        sh = logging.StreamHandler(stream=sys.stderr)
+        sh.setFormatter(logging.Formatter("%(message)s"))
+        lg.addHandler(sh)
+        lg.setLevel(level)
+        lg.propagate = False
+
+        runner = Runner(allowed_tags=tagset, include_tags=True, log_level=level)
         try:
             result = runner.run()
         except Runner.PlanningError as exc:

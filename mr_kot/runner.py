@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import inspect
 import logging
-import sys
 import types
 from collections import Counter
 from contextlib import suppress
@@ -42,7 +41,7 @@ class RunResult:
     items: List[CheckResult]
 
 
-_LOGGER_NAME = "mr_kot"
+LOGGER_NAME = "mr_kot"
 
 
 class Runner:
@@ -50,9 +49,8 @@ class Runner:
         self,
         allowed_tags: Optional[set[str]] = None,
         include_tags: bool = False,
-        verbose: bool = False,
         *,
-        manage_logging: bool = False,
+        log_level: int = logging.WARNING,
         logger: Optional[logging.Logger] = None,
     ) -> None:
         """Runner orchestrates discovery and execution of checks.
@@ -60,18 +58,14 @@ class Runner:
         Parameters:
         - allowed_tags: optional set of tags to include
         - include_tags: include tags in CheckResult
-        - verbose: when True and manage_logging=True, set logger to DEBUG
-        - manage_logging: when True, configure the package logger
-          with a StreamHandler bound to sys.stderr.
-          When False, do not add handlers nor change propagation; the host
-          application is expected to configure logging.
+        - log_level: logger level to set for the mr_kot logger (default WARNING)
         - logger: optional logger instance to use instead of the default
           package logger name.
         """
         self._fact_cache: Dict[str, Any] = {}
         self._allowed_tags: Optional[set[str]] = set(allowed_tags) if allowed_tags else None
         self._include_tags: bool = include_tags
-        self._init_logger(verbose, manage_logging=manage_logging, logger=logger)
+        self._init_logger(log_level, logger=logger)
 
     def run(self) -> RunResult:
         """Run all registered checks and return a typed RunResult dataclass."""
@@ -92,34 +86,13 @@ class Runner:
         return self._build_output(results)
 
     # ----- Private helpers -----
-    def _init_logger(self, verbose: bool, *, manage_logging: bool, logger: Optional[logging.Logger]) -> None:
+    def _init_logger(self, log_level: int, logger: Optional[logging.Logger]) -> None:
         """Initialize the runner logger.
 
-        Logs are emitted to stderr. INFO by default, DEBUG when verbose=True.
+        Only sets the logger level; external code (CLI/tests/app) must configure handlers/propagation.
         """
-        lg = logger or logging.getLogger(_LOGGER_NAME)
-        if manage_logging:
-            # Reinitialize handler to bind to current sys.stderr for test capture
-            for h in list(lg.handlers):
-                lg.removeHandler(h)
-            handler = logging.StreamHandler(stream=sys.stderr)
-            handler.setFormatter(logging.Formatter("%(message)s"))
-            lg.addHandler(handler)
-            lg.propagate = False
-            lg.setLevel(logging.DEBUG if verbose else logging.INFO)
-        else:
-            # If only NullHandler(s) are attached (typical for libraries), treat it as
-            # effectively no real handler and attach a minimal stderr handler so tests
-            # and simple usages still see logs. Otherwise, leave configuration to host.
-            own_handlers = list(lg.handlers)
-            non_null_handlers = [h for h in own_handlers if not isinstance(h, logging.NullHandler)]
-            if not non_null_handlers:
-                handler = logging.StreamHandler(stream=sys.stderr)
-                handler.setFormatter(logging.Formatter("%(message)s"))
-                lg.addHandler(handler)
-                lg.propagate = False
-            # Ensure level matches verbosity so INFO lines appear in tests
-            lg.setLevel(logging.DEBUG if verbose else logging.INFO)
+        lg = logger or logging.getLogger(LOGGER_NAME)
+        lg.setLevel(log_level)
         self._logger = lg
 
     def _log_registry_summary(self) -> None:
