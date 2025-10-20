@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mr-kot"
-version = "0.8.3"
+version = "0.8.4"
 description = "Pytest-inspired invariant checker"
 authors = ["Alexander Presniakov <alexander.presniakov@mariadb.com>"]
 readme = "README.md"

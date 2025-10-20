@@ -40,6 +40,12 @@ class RunResult:
     # Flat list of all check results
     items: List[CheckResult]
 
+    def problems(self, include_warns: bool = False) -> List[CheckResult]:
+        bad = {Status.FAIL, Status.ERROR}
+        if include_warns:
+            bad.add(Status.WARN)
+        return [it for it in self.items if it.status in bad]
+
 
 LOGGER_NAME = "mr_kot"
 
@@ -70,20 +76,33 @@ class Runner:
     def run(self) -> RunResult:
         """Run all registered checks and return a typed RunResult dataclass."""
         results: list[CheckResult] = []
+        try:
+            self._log_registry_summary()
 
-        self._log_registry_summary()
+            # Preflight: validate and produce selector/param-source facts; fail-fast on errors
+            self._preflight_selector_and_param_facts()
 
-        # Preflight: validate and produce selector/param-source facts; fail-fast on errors
-        self._preflight_selector_and_param_facts()
-
-        # Iterate checks
-        for check_id, check_fn in CHECK_REGISTRY.items():
-            include, tags = self._filter_by_tags(check_fn)
-            if not include:
-                continue
-            results.extend(self._run_check_plan(check_id, check_fn, tags))
-
-        return self._build_output(results)
+            # Iterate checks
+            for check_id, check_fn in CHECK_REGISTRY.items():
+                include, tags = self._filter_by_tags(check_fn)
+                if not include:
+                    continue
+                results.extend(self._run_check_plan(check_id, check_fn, tags))
+            return self._build_output(results)
+        except Runner.PlanningError:
+            # Preserve planning errors for tests and callers that expect them
+            raise
+        except Exception as exc:
+            # Convert any unexpected exception into an ERROR item, stop inspection, and return
+            results.append(
+                CheckResult(
+                    id="Runner.run",
+                    status=Status.ERROR,
+                    evidence=f"exception: {exc.__class__.__name__}: {exc}",
+                    tags=[],
+                )
+            )
+            return self._build_output(results)
 
     # ----- Private helpers -----
     def _init_logger(self, log_level: int, logger: Optional[logging.Logger]) -> None:
