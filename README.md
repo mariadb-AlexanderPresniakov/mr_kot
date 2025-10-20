@@ -1,14 +1,16 @@
 # Mr. Kot
 
-Mr. Kot is a **pytest-inspired invariant checker**. It is designed to describe and verify **system invariants**: conditions that must hold for a system to remain functional.
+Mr. Kot is a **pytest-inspired invariant checker**. It is designed to describe and verify **system invariants** — conditions that must hold for a system to remain functional.
 
-Mr. Kot is specialized for **health checks**. It provides:
-- **Facts**: small functions that describe system state.
-- **Checks**: functions that use facts (and optionally fixtures) to verify invariants.
-- **Selectors**: conditions based on facts that decide whether a check should run.
-- **Fixtures**: reusable resources injected into checks with setup/teardown support.
-- **Parametrization**: run the same check with multiple values or fact-provided inputs.
-- **Runner**: an engine that resolves facts, applies selectors, expands parametrization, runs checks, and produces machine-readable results.
+The central concept in Mr. Kot is a **check**: a function that validates a condition (for example, file presence, permissions, or a config section) and returns a status — one of `PASS`, `WARN`, `FAIL`, or `ERROR` — plus evidence (a string containing description). In pytest terms, checks are tests.
+
+You can have many checks, but not all of them need to run in every environment. For example, you don’t want to run systemd‑specific checks when the app runs in a container. To control this, you attach a **selector** to a check that specifies the conditions under which it should run. In pytest terms, selectors are similar to skipif markers.
+
+In selectors we use one more important concept of Mr. Kot - **facts**. Facts are functions that return some value (e.g., OS release, CPU count). Selectors can use these values (e.g., “run this check only if the `distro` fact is (returns) Ubuntu,” “run only if `has_systemd` is (returns) true”). Facts are evaluated once per run.
+
+Checks can also depend on facts to get values needed for their logic without recomputing them (cleanly separating “what data we need to perform the check” from “how we perform the check”). The pytest analogy is a fixture or, more generally, dependency injection: add the fact name to the check function’s parameter list and its value will be provided.
+
+In many cases, it’s cleaner to write check logic for a single entity (e.g., validating permissions of one directory) and use **parametrization** to run it multiple times with different values. This produces precise diagnostics for the specific item that failed. You can pass a literal list of values or reference a fact that provides them. For example, data directory paths may depend on the distribution, so you can create a `data_dirs` fact that returns a list of paths and pass it to `parametrize`.
 
 ---
 
@@ -32,7 +34,7 @@ def os_is_ubuntu(os_release: dict) -> bool:
 ```
 ### Checks
 Checks verify invariants. They are registered with `@check`.
-Checks must return a tuple `(status, evidence)` where `status` is a `Status` enum: `PASS`, `FAIL`, `WARN`, `SKIP`, or `ERROR`.
+Checks must return a tuple `(status, evidence)` where `status` is a `Status` enum: `PASS`, `FAIL`, `WARN`, `SKIP`, or `ERROR` (returned automatically if the check caused an unhandled exception).
 
 You can use fact values inside a check to make a decision and craft evidence:
 
@@ -60,11 +62,11 @@ from mr_kot import check, depends, fixture, Status
 @fixture
 def side_effectful_fixture():
     mount("/data")
-    yield True
+    yield True # No useful value, just side effect
     umount("/data")
 
 @check
-@depends("side_effectful_fixture")
+@depends("side_effectful_fixture") # the check needs only the side effect of the fixture (dir must be mounted)
 def fs_write_smoke():
     with open("/data/test", "w") as f:
         f.write("ok")
