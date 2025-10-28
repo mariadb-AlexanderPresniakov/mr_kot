@@ -219,6 +219,18 @@ def demo():
     return (status, evidence)
 ```
 
+You can OR-combine validators with `any_of(v1, v2, ...)`:
+
+```python
+from mr_kot.validators import any_of
+
+# Passes if owner is either mysql or mariadb; on failure aggregates both diagnostics
+status, evidence = check_all(
+    path,
+    any_of(OwnerIs('mysql'), OwnerIs('mariadb')),
+)
+```
+
 
 ### Fixtures
 Fixtures are reusable resources. They are registered with `@fixture`.

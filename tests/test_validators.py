@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mr_kot import Status, check_all
+from mr_kot import Status, check_all, any_of
 
 
 def _pass(msg: str):
@@ -100,4 +100,23 @@ class TestCheckAll:
         status2, _ = check_all("zzz", v)
         assert status2 is Status.FAIL
 
-    
+
+
+class TestAnyOf:
+    def test_any_of_passes_when_first_passes(self) -> None:
+        v = any_of(_pass("ok1"), _fail("bad"))
+        st, ev = v("T")
+        assert st is Status.PASS
+        assert "passed via" in ev
+
+    def test_any_of_passes_when_second_passes(self) -> None:
+        v = any_of(_fail("bad"), _pass("ok2"))
+        st, ev = v("T")
+        assert st is Status.PASS
+        assert "passed via" in ev
+
+    def test_any_of_aggregates_failures_and_returns_worst(self) -> None:
+        v = any_of(_warn("w1"), _fail("f1"))
+        st, ev = v("T")
+        assert st is Status.FAIL
+        assert "no match" in ev and "w1" in ev and "f1" in ev

@@ -131,3 +131,33 @@ def _validator_name(v: Validator) -> str:
         return str(v.__name__)  # type: ignore[attr-defined]
     cls = v.__class__
     return cls.__name__ if hasattr(cls, "__name__") else repr(v)
+
+
+def any_of(*validators: Validator) -> Validator:
+    """Compose validators with OR semantics.
+
+    - If any validator passes, return PASS and indicate which one.
+    - If none pass, return the most severe status and aggregate all evidences.
+    """
+    def _v(target: Any) -> Tuple[Status, str]:
+        results: list[tuple[Status, str, str]] = []  # (status, evidence, name)
+        for v in validators:
+            name = _validator_name(v)
+            try:
+                raw_status, ev = v(target)
+                status = _normalize_status(raw_status)
+            except Exception as exc:  # pragma: no cover - defensive
+                status = Status.ERROR
+                ev = f"validator={name} error={exc.__class__.__name__}: {exc}"
+            results.append((status, ev, name))
+            if status is Status.PASS:
+                return (Status.PASS, f"any_of: passed via {name}")
+
+        if not results:
+            return (Status.PASS, f"target={target!r} ok")
+
+        worst = max((s for s, _e, _n in results), key=lambda s: _SEVERITY.get(s, 0))
+        evidences = "; ".join(f"{n}: {e}" for _s, e, n in results)
+        return (worst, f"any_of: no match; {evidences}")
+
+    return _v
