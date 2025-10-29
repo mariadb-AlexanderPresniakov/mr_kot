@@ -189,23 +189,22 @@ Validators are small reusable building blocks of logic used inside checks. They 
 You can run several validators together over one target with `check_all()`, which executes them in order and aggregates their results, stopping early if one fails (or running all if configured). This lets you compose complex checks from small, prepared, domain‑specific pieces of logic without writing everything manually.
 
 Details:
-- A validator is `validator(target) -> (Status|str, str)` (status, evidence).
-- Build validators as plain functions or callable classes that capture options in `__init__` and implement `__call__(target)`.
-- `check_all(target, *validators, fail_fast=True)` runs validators in order.
-  - `fail_fast=True`: stop at the first `FAIL` or `ERROR` and return that evidence.
-  - `fail_fast=False`: run all, aggregate by severity (`ERROR > FAIL > WARN > PASS`), join messages with `"; "`; if all pass, evidence is `target=<repr> ok`.
-- Robustness: unexpected exceptions in validators are converted to `ERROR` with evidence `validator=<name> error=<ExcType>: <message>`.
+- A validator is any callable `validator(target) -> (Status|str, str)`.
+- Recommended: subclass `BaseValidator` (a dataclass) and implement `validate(self, target) -> (Status, str)`.
 
 Example:
 
 ```python
 from mr_kot import check, Status, check_all
+from mr_kot.validators import BaseValidator
 
-class HasPrefix:
-    def __init__(self, prefix: str) -> None:
-        self.prefix = prefix
+from dataclasses import dataclass
 
-    def __call__(self, target: str):
+@dataclass
+class HasPrefix(BaseValidator):
+    prefix: str
+
+    def validate(self, target: str):
         if target.startswith(self.prefix):
             return (Status.PASS, f"{target} has {self.prefix}")
         return (Status.FAIL, f"{target} missing {self.prefix}")

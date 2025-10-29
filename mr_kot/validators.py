@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Callable, Protocol, Tuple, Union, runtime_checkable
+from dataclasses import dataclass, fields
 
 from .status import Status
 
@@ -50,6 +51,45 @@ def _get_logger() -> logging.Logger:
     return logger
 
 
+@dataclass
+class BaseValidator:
+    """Base class for validators with readable description and robust calling."""
+
+    def validate(self, target: Any) -> Tuple[Status, str]:
+        """Implement validator logic here."""
+        raise NotImplementedError
+
+    def describe(self) -> str:
+        """Return a human-friendly label for diagnostics.
+
+        Default: ClassName(field=value, ...) using dataclass fields.
+        """
+        cls_name = self.__class__.__name__
+        try:
+            parts = []
+            for f in fields(self):
+                val = getattr(self, f.name)
+                parts.append(f"{f.name}={val!r}")
+            args = ", ".join(parts)
+            return f"{cls_name}({args})" if parts else f"{cls_name}()"
+        except Exception:
+            return f"{cls_name}()"
+
+    def __call__(self, target: Any) -> Tuple[Status, str]:
+        """Execute validator with error safety and status normalization.
+
+        - Converts unexpected exceptions to (ERROR, evidence).
+        - Normalizes Status if a string value is returned by validate().
+        """
+        name = _validator_name(self)
+        try:
+            raw_status, ev = self.validate(target)
+            status = _normalize_status(raw_status)
+            return (status, ev)
+        except Exception as exc:
+            return (Status.ERROR, f"validator={name} error={exc.__class__.__name__}: {exc}")
+
+
 def check_all(target: Any, *validators: Validator, fail_fast: bool = True) -> Tuple[Status, str]:
     """Run validators over a single target and aggregate to one (status, evidence).
 
@@ -68,7 +108,7 @@ def check_all(target: Any, *validators: Validator, fail_fast: bool = True) -> Tu
     first_failure_ev: str | None = None
 
     for v in validators:
-        name = _validator_name(v)
+        name = _validator_label(v)
         try:
             raw_status, ev = v(target)
             status = _normalize_status(raw_status)
@@ -133,6 +173,25 @@ def _validator_name(v: Validator) -> str:
     return cls.__name__ if hasattr(cls, "__name__") else repr(v)
 
 
+def _validator_label(v: Validator) -> str:
+    """Human-readable label for a validator for diagnostics.
+
+    Preference order:
+    - v.describe() if available and returns a string
+    - fallback to _validator_name(v)
+    """
+    desc = getattr(v, "describe", None)
+    if callable(desc):
+        try:
+            s = desc()
+            if isinstance(s, str) and s:
+                return s
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+    return _validator_name(v)
+
+
 def any_of(*validators: Validator) -> Validator:
     """Compose validators with OR semantics.
 
@@ -140,9 +199,9 @@ def any_of(*validators: Validator) -> Validator:
     - If none pass, return the most severe status and aggregate all evidences.
     """
     def _v(target: Any) -> Tuple[Status, str]:
-        results: list[tuple[Status, str, str]] = []  # (status, evidence, name)
+        results: list[tuple[Status, str, str]] = []  # (status, evidence, label)
         for v in validators:
-            name = _validator_name(v)
+            name = _validator_label(v)
             try:
                 raw_status, ev = v(target)
                 status = _normalize_status(raw_status)
