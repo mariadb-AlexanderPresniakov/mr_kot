@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Callable, Protocol, Tuple, Union, runtime_checkable
-from dataclasses import dataclass, fields
+from dataclasses import MISSING, dataclass, fields
 
 from .status import Status
 
@@ -69,6 +69,18 @@ class BaseValidator:
             parts = []
             for f in fields(self):
                 val = getattr(self, f.name)
+                # Omit fields equal to their default value
+                has_default = f.default is not MISSING or f.default_factory is not MISSING
+                if has_default:
+                    try:
+                        default_val = (
+                            f.default if f.default is not MISSING else f.default_factory()
+                        )
+                        if val == default_val:
+                            continue
+                    except Exception:
+                        # If comparison or factory fails, include the field
+                        pass
                 parts.append(f"{f.name}={val!r}")
             args = ", ".join(parts)
             return f"{cls_name}({args})" if parts else f"{cls_name}()"
