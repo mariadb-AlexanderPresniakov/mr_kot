@@ -228,7 +228,9 @@ def any_of(*validators: Validator) -> Validator:
             return (Status.PASS, f"target={target!r} ok")
 
         worst = max((s for s, _e, _n in results), key=lambda s: _SEVERITY.get(s, 0))
-        evidences = "; ".join(f"{n}: {e}" for _s, e, n in results)
-        return (worst, f"any_of: no match; {evidences}")
+        lines = ["any_of: no match:"]
+        for _s, e, n in results:
+            lines.append(f"  {n}: {e}")
+        return (worst, "\n".join(lines))
 
     return _v
